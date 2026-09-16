@@ -1,0 +1,30 @@
+{
+  "name": "benjamolina-pi-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal Pi extensions, themes, skills, and prompts.",
+  "type": "module",
+  "keywords": [
+    "pi-package"
+  ],
+  "scripts": {
+    "test": "bun test"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "themes": [
+      "./themes"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ]
+  }
+}
