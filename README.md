@@ -19,7 +19,7 @@ They prefer CLIProxyAPI's enriched `/v1/models?client_version=1` catalog and fal
 Install globally from a pinned Git tag:
 
 ```powershell
-pi install git:https://github.com/BenjaMolina/pi-kit.git@v0.1.0
+pi install git:https://github.com/BenjaMolina/pi-kit.git@v0.3.0
 ```
 
 For local development:
