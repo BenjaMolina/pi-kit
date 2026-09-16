@@ -4,9 +4,15 @@ on:
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing exact vSemVer tag to publish
+        required: true
+        type: string
 
 concurrency:
-  group: npm-publish-${{ github.ref_name }}
+  group: npm-publish-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -17,9 +23,21 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve exact release tag
+        id: release
+        env:
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s\n' "${REQUESTED_TAG}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "tag=${REQUESTED_TAG} is not exact vSemVer" >&2
+            exit 1
+          fi
+          echo "tag=${REQUESTED_TAG}" >> "${GITHUB_OUTPUT}"
+
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ steps.release.outputs.tag }}
           fetch-depth: 0
 
       - uses: actions/setup-node@v4
@@ -37,7 +55,7 @@ jobs:
 
       - name: Verify tag ancestry and package manifest
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
@@ -105,8 +123,8 @@ jobs:
             exit 1
           fi
 
-          echo "Publishing bootstrap-only v0.3.1 with NPM_TOKEN; Trusted Publisher replaces it after this publication."
-          if npm publish --access public --provenance; then
+          echo "Publishing bootstrap-only v0.3.1 with NPM_TOKEN. Provenance is disabled because npm rejects provenance from private source repositories."
+          if npm publish --access public; then
             :
           else
             publish_status=$?
