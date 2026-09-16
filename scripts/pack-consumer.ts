@@ -8,6 +8,9 @@ const PACKAGE_NAME = "@benjamolina/pi-kit";
 const PACKAGE_VERSION = "0.3.1";
 const PI_VERSION = "0.85.1";
 const OPENCODE_VERSION = "1.18.18";
+const OPENCODE_BIN = process.platform === "win32"
+  ? join(ROOT, "node_modules", ".bin", "opencode.cmd")
+  : join(ROOT, "node_modules", ".bin", "opencode");
 const REQUIRED_FILES = [
   "LICENSE",
   "README.md",
@@ -153,7 +156,8 @@ async function verifyOpenCodeConsumer(consumer: string, registry: RegistryMock):
   writeFileSync(join(home, ".npmrc"), `@benjamolina:registry=${registry.url}\n`);
   await Bun.write(join(configDir, "opencode.json"), JSON.stringify({ plugin: [`${PACKAGE_NAME}@${PACKAGE_VERSION}`] }));
 
-  const output = await runCommand(["opencode", "models", "cliproxyapi"], consumer, isolatedEnvironment(home, registry.url, {
+  assert(existsSync(OPENCODE_BIN), `OpenCode ${OPENCODE_VERSION} binary is missing; run npm ci first`);
+  const output = await runCommand([OPENCODE_BIN, "models", "cliproxyapi"], consumer, isolatedEnvironment(home, registry.url, {
     CLIPROXYAPI_API_KEY: "pack-consumer-key",
     CLIPROXYAPI_BASE_URL: `${registry.url}v1`,
   }));
