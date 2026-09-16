@@ -4,6 +4,10 @@ Personal, reusable resources for [Pi](https://github.com/earendil-works/pi-mono)
 
 ## Included resources
 
+### CLIProxyAPI local Docker profile
+
+[`profiles/cliproxyapi`](profiles/cliproxyapi/README.md) is a reproducible local Docker profile: secret-free configuration templates, a loopback-only Compose override, and a checksum-verified installer for the optional Control Account quota dashboard.
+
 ### CLIProxyAPI dynamic provider
 
 `extensions/cliproxyapi-dynamic-provider.ts` registers a Pi provider named `cliproxyapi`. It discovers the models currently exposed by a running [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) instance.

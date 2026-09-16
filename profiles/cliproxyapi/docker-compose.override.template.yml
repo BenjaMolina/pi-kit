@@ -1,0 +1,11 @@
+# Copy this file to docker-compose.override.yml beside upstream docker-compose.yml.
+# Compose merges it automatically and replaces upstream's public port list.
+services:
+  cli-proxy-api:
+    ports: !override
+      - "127.0.0.1:8317:8317"
+      - "127.0.0.1:8085:8085"
+      - "127.0.0.1:1455:1455"
+      - "127.0.0.1:54545:54545"
+      - "127.0.0.1:51121:51121"
+      - "127.0.0.1:11451:11451"
