@@ -1,11 +1,33 @@
 {
-  "name": "benjamolina-pi-kit",
-  "version": "0.3.0",
-  "private": true,
-  "description": "Personal Pi extensions, themes, skills, and prompts.",
+  "name": "@benjamolina/pi-kit",
+  "version": "0.3.1",
+  "private": false,
+  "description": "Reusable Pi resources and an OpenCode CLIProxyAPI plugin.",
   "type": "module",
+  "main": "./opencode/cliproxyapi.ts",
+  "exports": "./opencode/cliproxyapi.ts",
+  "license": "MIT",
+  "author": "BenjaMolina",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BenjaMolina/pi-kit.git"
+  },
+  "homepage": "https://github.com/BenjaMolina/pi-kit#readme",
+  "bugs": {
+    "url": "https://github.com/BenjaMolina/pi-kit/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "bun": ">=1.1.0"
+  },
   "keywords": [
-    "pi-package"
+    "pi-package",
+    "pi",
+    "opencode",
+    "cliproxyapi"
   ],
   "files": [
     "extensions/",
@@ -18,7 +40,9 @@
     "README.md"
   ],
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "test:pack": "bun scripts/pack-consumer.ts",
+    "test:release-manifest": "bun scripts/release-manifest-check.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
