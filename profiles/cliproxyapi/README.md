@@ -9,24 +9,13 @@ It is a template, not a source of credentials. Keep `config.yaml`, `docker-compo
 - Docker Desktop with Docker Compose
 - PowerShell
 - A clone or fork of [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
-- A clone of this `pi-kit` repository next to it
-
-Expected layout:
-
-```text
-C:\Github\Ordico\
-├── CLIProxyAPI\
-└── pi-kit\
-```
+- The published `@benjamolina/pi-kit` package, or a checkout of this repository when maintaining the profile
 
 ## 1. Prepare the local server configuration
 
 From the `CLIProxyAPI` directory:
 
-```powershell
-Copy-Item ..\pi-kit\profiles\cliproxyapi\config.template.yaml .\config.yaml
-Copy-Item ..\pi-kit\profiles\cliproxyapi\docker-compose.override.template.yml .\docker-compose.override.yml
-```
+Copy the two templates from your installed `@benjamolina/pi-kit` package (or this repository checkout) into the CLIProxyAPI root as `config.yaml` and `docker-compose.override.yml`. Keep the resulting server configuration out of version control.
 
 Generate two distinct long random values and replace the placeholders in `config.yaml`:
 
@@ -49,9 +38,7 @@ The dashboard is trusted in-process dynamic-library code. Review the project and
 
 This profile pins the prerelease `v0.6.0-rc.4`, tested with CLIProxyAPI `v7.3.4` at upstream commit `8335eac`. Install and verify its Linux amd64 binary:
 
-```powershell
-..\pi-kit\profiles\cliproxyapi\install-control-account.ps1
-```
+Run `install-control-account.ps1` from the installed package's `profiles/cliproxyapi` directory (or this repository checkout).
 
 The script downloads `control-account-linux-amd64.so` into `CLIProxyAPI\plugins\` and requires SHA-256:
 
@@ -61,9 +48,7 @@ The script downloads `control-account-linux-amd64.so` into `CLIProxyAPI\plugins\
 
 It refuses to overwrite an existing binary. To intentionally replace it:
 
-```powershell
-..\pi-kit\profiles\cliproxyapi\install-control-account.ps1 -Force
-```
+Re-run the same script with `-Force` only when intentionally replacing the existing binary.
 
 ## 3. Start and verify
 
@@ -103,7 +88,7 @@ Provider credentials persist under `auths/` and must never be committed or copie
 
 Install `pi-kit`, configure `CLIPROXYAPI_API_KEY` using the client API key from `config.yaml`, then select a `cliproxyapi` model through Pi's `/model`. See the root [README](../../README.md#configure-cliproxyapi) for the shared environment-variable instructions.
 
-For OpenCode 1.18.18, load this package's `opencode/cliproxyapi.ts` through OpenCode's `plugin` configuration. The root [OpenCode instructions](../../README.md#use-in-opencode-11818) include the local file-URI example, reload behavior, and graceful behavior when this local service is unavailable.
+For OpenCode 1.18.18, load `@benjamolina/pi-kit@0.3.1` through OpenCode's `plugin` configuration. The root [OpenCode instructions](../../README.md#use-in-opencode-11818) include the portable npm installation, reload behavior, and graceful behavior when this local service is unavailable.
 
 ## Update safely
 

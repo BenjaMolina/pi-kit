@@ -60,5 +60,8 @@
     "prompts": [
       "./prompts"
     ]
+  },
+  "devDependencies": {
+    "opencode-ai": "1.18.18"
   }
 }

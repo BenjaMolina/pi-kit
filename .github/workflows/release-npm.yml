@@ -1,0 +1,140 @@
+name: Publish npm package
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+concurrency:
+  group: npm-publish-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install frozen dependencies
+        run: npm ci
+
+      - name: Verify tag ancestry and package manifest
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          tag_commit="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+          git merge-base --is-ancestor "${tag_commit}" origin/main
+          npm run test:release-manifest
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify packed consumers
+        run: npm run test:pack
+
+      - name: Publish the missing exact version and verify propagation
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          package_name="$(node --input-type=module -e 'import p from "./package.json" with { type: "json" }; console.log(p.name)')"
+          package_version="$(node --input-type=module -e 'import p from "./package.json" with { type: "json" }; console.log(p.version)')"
+
+          query_exact_version() {
+            local output status actual
+            if output="$(npm view "${package_name}@${package_version}" version --json 2>&1)"; then
+              if ! actual="$(node --input-type=module -e '
+                const value = JSON.parse(process.argv[1]);
+                if (typeof value !== "string") process.exit(1);
+                process.stdout.write(value);
+              ' "${output}")"; then
+                echo "Registry returned a non-version response for ${package_name}@${package_version}" >&2
+                return 2
+              fi
+              if [ "${actual}" = "${package_version}" ]; then
+                return 0
+              fi
+              echo "Registry returned ${actual}, not exact version ${package_version}" >&2
+              return 2
+            else
+              status=$?
+              if printf '%s\n' "${output}" | grep -Fxq 'npm error code E404'; then
+                return 1
+              fi
+              echo "Registry lookup failed without a confirmed npm E404 (exit ${status}):" >&2
+              printf '%s\n' "${output}" >&2
+              return 2
+            fi
+          }
+
+          if query_exact_version; then
+            echo "Verified existing ${package_name}@${package_version}"
+            exit 0
+          else
+            lookup_status=$?
+          fi
+          if [ "${lookup_status}" -ne 1 ]; then
+            exit "${lookup_status}"
+          fi
+
+          if [ "${package_version}" != "0.3.1" ]; then
+            echo "Token-based publication is permanently restricted to bootstrap version 0.3.1; configure npm Trusted Publisher for later releases." >&2
+            exit 1
+          fi
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "NPM_TOKEN is required only for bootstrap publication of v0.3.1; configure npm Trusted Publisher and remove this secret afterward." >&2
+            exit 1
+          fi
+
+          echo "Publishing bootstrap-only v0.3.1 with NPM_TOKEN; Trusted Publisher replaces it after this publication."
+          if npm publish --access public --provenance; then
+            :
+          else
+            publish_status=$?
+            echo "npm publish failed (exit ${publish_status}); checking whether the exact version was published before failing." >&2
+            if query_exact_version; then
+              echo "Verified ${package_name}@${package_version} despite npm publish failure"
+              exit 0
+            else
+              lookup_status=$?
+            fi
+            if [ "${lookup_status}" -eq 1 ]; then
+              echo "${package_name}@${package_version} remains missing after publish failure" >&2
+            fi
+            exit "${publish_status}"
+          fi
+
+          for attempt in $(seq 1 30); do
+            if query_exact_version; then
+              echo "Verified registry propagation for ${package_name}@${package_version}"
+              exit 0
+            else
+              lookup_status=$?
+            fi
+            if [ "${lookup_status}" -ne 1 ]; then
+              exit "${lookup_status}"
+            fi
+            sleep 10
+          done
+
+          echo "Published ${package_name}@${package_version}, but registry propagation was not verified" >&2
+          exit 1
