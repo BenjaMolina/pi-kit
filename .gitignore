@@ -5,3 +5,4 @@ coverage/
 *.log
 .DS_Store
 .atl/
+tests/.opencode-runtime-smoke/
