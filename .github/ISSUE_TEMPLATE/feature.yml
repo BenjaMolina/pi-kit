@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose a focused, reviewable enhancement.
+title: "[Feature]: "
+labels:
+  - type:feature
+  - status:needs-review
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What limitation or user need should this address?
+      placeholder: Describe the current limitation and who it affects.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the desired behavior without prescribing unnecessary implementation details.
+      placeholder: Explain the expected outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable conditions that would make this complete.
+      placeholder: |
+        - [ ] Expected behavior is available
+        - [ ] Existing behavior remains compatible
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification plan
+      description: How should the change be tested in its target runtime?
+      placeholder: Include automated and manual runtime checks.
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope confirmation
+      options:
+        - label: I confirmed this request is focused and does not include unrelated work.
+          required: true
