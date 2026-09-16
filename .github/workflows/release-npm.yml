@@ -79,7 +79,7 @@ jobs:
 
           query_exact_version() {
             local output status actual
-            if output="$(npm view "${package_name}@${package_version}" version --json 2>&1)"; then
+            if output="$(npm view "${package_name}@${package_version}" version --json --prefer-online --cache "$(mktemp -d)" 2>&1)"; then
               if ! actual="$(node --input-type=module -e '
                 const value = JSON.parse(process.argv[1]);
                 if (typeof value !== "string") process.exit(1);
