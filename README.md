@@ -28,7 +28,11 @@ Pi packages run with the current user's permissions. Review extensions before in
 
 ## Configure CLIProxyAPI
 
-CLIProxyAPI must be running and its client API key must be available to the Pi process.
+CLIProxyAPI must be running and its client API key (from `config.yaml` under `api-keys`, not the management key) must be available to the Pi process.
+
+### 1. Set environment variables (persistent)
+
+In PowerShell:
 
 ```powershell
 [Environment]::SetEnvironmentVariable(
@@ -44,9 +48,25 @@ CLIProxyAPI must be running and its client API key must be available to the Pi p
 )
 ```
 
-Close and reopen the terminal after changing user environment variables. Never commit the actual API key.
+`CLIPROXYAPI_BASE_URL` is optional and defaults to `http://127.0.0.1:8317/v1`. Never commit the actual API key.
 
-`CLIPROXYAPI_BASE_URL` is optional and defaults to `http://127.0.0.1:8317/v1`.
+### 2. Refresh existing terminal without closing
+
+If you already have a PowerShell window open, refresh the environment variables into the current session immediately:
+
+```powershell
+'CLIPROXYAPI_API_KEY','CLIPROXYAPI_BASE_URL' | ForEach-Object {
+  Set-Item "Env:$_" ([Environment]::GetEnvironmentVariable($_, 'User'))
+}
+```
+
+Alternatively, fully close all Windows Terminal windows and open a new one.
+
+Verify they are loaded:
+
+```powershell
+$env:CLIPROXYAPI_API_KEY
+```
 
 ## Use in Pi
 
