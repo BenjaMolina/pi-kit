@@ -8,11 +8,11 @@ Personal, reusable resources for [Pi](https://github.com/earendil-works/pi-mono)
 
 [`profiles/cliproxyapi`](profiles/cliproxyapi/README.md) is a reproducible local Docker profile: secret-free configuration templates, a loopback-only Compose override, and a checksum-verified installer for the optional Control Account quota dashboard.
 
-### CLIProxyAPI dynamic provider
+### CLIProxyAPI dynamic providers
 
-`extensions/cliproxyapi-dynamic-provider.ts` registers a Pi provider named `cliproxyapi`. It discovers the models currently exposed by a running [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) instance.
+`extensions/cliproxyapi-dynamic-provider.ts` registers a Pi provider named `cliproxyapi`, while `opencode/cliproxyapi.ts` is an [OpenCode](https://opencode.ai/) local plugin for OpenCode 1.18.18. Both discover the models currently exposed by a running [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) instance.
 
-The extension prefers CLIProxyAPI's enriched model catalog and falls back to the standard OpenAI-compatible `/v1/models` response. CLIProxyAPI remains responsible for provider credentials, account rotation, and load balancing.
+They prefer CLIProxyAPI's enriched `/v1/models?client_version=1` catalog and fall back to the standard OpenAI-compatible `/v1/models` response. CLIProxyAPI remains responsible for provider credentials, account rotation, and load balancing.
 
 ## Install
 
@@ -81,6 +81,25 @@ $env:CLIPROXYAPI_API_KEY
 5. Select a model. Press `Ctrl+S` to save it as the startup default.
 
 After adding or removing provider accounts in CLIProxyAPI, use `/reload`, restart Pi, or run `pi update --models` to refresh the catalog.
+
+## Use in OpenCode 1.18.18
+
+This package includes a local OpenCode plugin at `opencode/cliproxyapi.ts`; it does not change Pi's extension loading. The entry module intentionally has exactly one default plugin-function export, which is OpenCode 1.18.18's external-plugin loading contract. Keep the repository available on disk, then add its file URI to an OpenCode configuration file (project or global), merging it with any existing `plugin` entries:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "file:///C:/Github/Ordico/pi-kit/opencode/cliproxyapi.ts"
+  ]
+}
+```
+
+Use forward slashes in a Windows file URI and replace the path with your clone or installed package location. Start or reload OpenCode after setting `CLIPROXYAPI_API_KEY`; the plugin's `config` hook discovers the catalog during that load. Restart or reload OpenCode after CLIProxyAPI account/model changes because the injected catalog is a startup snapshot.
+
+OpenCode invokes the plugin function, then invokes its returned `config` hook while resolving the model catalog. The hook registers `cliproxyapi` with `@ai-sdk/openai-compatible`, the resolved `CLIPROXYAPI_BASE_URL`, and the process-only API key. It maps safe context/output limits, text and image input modalities, and `reasoning: true` for reasoning-capable model variants. When discovered models share a display name, the unscoped model keeps the clean name and scoped variants show their scope—for example, `Gemini 3.8 Flash [agy-bmolina]`—without changing their IDs or routing. OpenCode 1.18.18 does not expose Pi's discrete thinking-level map through this provider configuration, so the catalog's reasoning variants are represented as separate model entries rather than a reasoning-effort selector.
+
+OpenCode startup remains usable if the key is missing or CLIProxyAPI is stopped/unreachable: the plugin leaves its configuration unchanged and injects no `cliproxyapi` provider. This intentionally avoids logging or persisting credentials. The local plugin requires OpenCode 1.18.18's current `config` hook and an OpenAI-compatible CLIProxyAPI chat-completions endpoint.
 
 ## Enable only what you need
 

@@ -99,9 +99,11 @@ Open `https://auth.openai.com/codex/device`, enter the one-time code shown in th
 
 Provider credentials persist under `auths/` and must never be committed or copied casually between machines.
 
-## 5. Connect Pi
+## 5. Connect Pi or OpenCode
 
-Install `pi-kit`, configure `CLIPROXYAPI_API_KEY` using the client API key from `config.yaml`, then select a `cliproxyapi` model through `/model`. See the root [README](../../README.md#configure-cliproxyapi) for the Pi environment-variable instructions.
+Install `pi-kit`, configure `CLIPROXYAPI_API_KEY` using the client API key from `config.yaml`, then select a `cliproxyapi` model through Pi's `/model`. See the root [README](../../README.md#configure-cliproxyapi) for the shared environment-variable instructions.
+
+For OpenCode 1.18.18, load this package's `opencode/cliproxyapi.ts` through OpenCode's `plugin` configuration. The root [OpenCode instructions](../../README.md#use-in-opencode-11818) include the local file-URI example, reload behavior, and graceful behavior when this local service is unavailable.
 
 ## Update safely
 
