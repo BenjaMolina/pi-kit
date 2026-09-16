@@ -42,6 +42,6 @@ if (import.meta.main) {
   const root = process.cwd();
   const manifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as Manifest;
   const lockfile = JSON.parse(readFileSync(resolve(root, "package-lock.json"), "utf8")) as Lockfile;
-  assertReleaseManifest(manifest, lockfile, process.env.GITHUB_REF_NAME);
+  assertReleaseManifest(manifest, lockfile, process.env.RELEASE_TAG);
   console.log(`Validated ${PACKAGE_NAME}@${manifest.version}`);
 }

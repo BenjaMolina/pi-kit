@@ -37,11 +37,11 @@ jobs:
 
       - name: Verify tag ancestry and package manifest
         env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          tag_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
+          tag_commit="$(git rev-parse "${RELEASE_TAG}^{commit}")"
           git merge-base --is-ancestor "${tag_commit}" origin/main
           npm run test:release-manifest
 
