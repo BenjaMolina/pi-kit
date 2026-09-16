@@ -14,6 +14,11 @@ Ship `@benjamolina/pi-kit@0.3.1` as one public npm package consumable by Pi and 
 - [x] Make clean Pi and OpenCode consumers resolve the package name through an isolated registry mock and record registry requests.
 - [x] Document the bootstrap-only NPM_TOKEN release path and the post-publication Trusted Publisher migration.
 - [x] Run the required package, consumer, archive, and whitespace validations.
+- [x] Publish immutable tag `v0.3.1` as `@benjamolina/pi-kit@0.3.1` through GitHub Actions.
+- [x] Correct private-repository provenance handling and cached npm propagation verification.
+- [x] Remove the bootstrap `NPM_TOKEN` repository secret after successful publication.
+- [x] Replace the local Pi package path with `npm:@benjamolina/pi-kit@0.3.1`.
+- [x] Replace the OpenCode file URL with `@benjamolina/pi-kit@0.3.1` and verify CLIProxyAPI model discovery.
 
 ## Constraints
 
