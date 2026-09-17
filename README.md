@@ -115,9 +115,9 @@ npm run test:pack
 
 ## Maintainer release
 
-The initial `v0.3.1` npm publication uses the `NPM_TOKEN` GitHub repository secret as a bootstrap-only credential. The workflow hard-blocks token publication for every later version. Because this repository is private and npm rejects provenance attestations from private source repositories, the bootstrap publish does not request provenance.
+npm releases use Trusted Publishing from the public GitHub repository through `.github/workflows/release-npm.yml`. The workflow requests a short-lived OIDC identity and publishes with npm provenance; it does not accept `NPM_TOKEN` or another long-lived npm credential.
 
-If the repository becomes public, configure npm Trusted Publisher for repository `BenjaMolina/pi-kit` and workflow `release-npm.yml`, remove the `NPM_TOKEN` secret, and update the release workflow to use OIDC with provenance.
+Configure the npm package's GitHub Actions Trusted Publisher with organization or user `BenjaMolina`, repository `pi-kit`, workflow filename `release-npm.yml`, no environment, and direct `npm publish` allowed.
 
 ## Attribution
 
