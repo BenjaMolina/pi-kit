@@ -12,9 +12,11 @@ function assertPublishScript(): string {
 }
 
 describe("npm Trusted Publishing workflow contract", () => {
-  test("uses GitHub OIDC rather than an npm token secret", () => {
+  test("uses GitHub OIDC rather than an npm token or setup-node auth shim", () => {
     expect(workflow).toContain("id-token: write");
     expect(workflow).not.toMatch(/\$\{\{\s*secrets\.(?:NPM_TOKEN|NODE_AUTH_TOKEN)\s*\}\}/);
+    expect(workflow).not.toContain("registry-url:");
+    expect(workflow).not.toContain("always-auth:");
 
     const script = assertPublishScript();
     expect(script).toContain('[ -n "${NODE_AUTH_TOKEN:-}" ] || [ -n "${NPM_TOKEN:-}" ]');
