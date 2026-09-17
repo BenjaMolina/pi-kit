@@ -50,6 +50,9 @@ jobs:
         with:
           bun-version: 1.4.2
 
+      - name: Install npm CLI for Trusted Publishing
+        run: npm install --global npm@11.5.1
+
       - name: Install frozen dependencies
         run: npm ci
 
@@ -69,9 +72,7 @@ jobs:
       - name: Verify packed consumers
         run: npm run test:pack
 
-      - name: Publish the missing exact version and verify propagation
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish the missing exact version with trusted OIDC and verify propagation
         run: |
           set -euo pipefail
           package_name="$(node --input-type=module -e 'import p from "./package.json" with { type: "json" }; console.log(p.name)')"
@@ -114,17 +115,13 @@ jobs:
             exit "${lookup_status}"
           fi
 
-          if [ "${package_version}" != "0.3.1" ]; then
-            echo "Token-based publication is permanently restricted to bootstrap version 0.3.1; configure npm Trusted Publisher for later releases." >&2
-            exit 1
-          fi
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "NPM_TOKEN is required only for bootstrap publication of v0.3.1; configure npm Trusted Publisher and remove this secret afterward." >&2
+          if [ -n "${NODE_AUTH_TOKEN:-}" ] || [ -n "${NPM_TOKEN:-}" ]; then
+            echo "Long-lived npm credentials are forbidden; publish only through the configured npm Trusted Publisher." >&2
             exit 1
           fi
 
-          echo "Publishing bootstrap-only v0.3.1 with NPM_TOKEN. Provenance is disabled because npm rejects provenance from private source repositories."
-          if npm publish --access public; then
+          echo "Publishing ${package_name}@${package_version} through npm Trusted Publishing with provenance."
+          if npm publish --access public --provenance; then
             :
           else
             publish_status=$?

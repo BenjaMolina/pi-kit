@@ -19,6 +19,8 @@ Ship `@benjamolina/pi-kit@0.3.1` as one public npm package consumable by Pi and 
 - [x] Remove the bootstrap `NPM_TOKEN` repository secret after successful publication.
 - [x] Replace the local Pi package path with `npm:@benjamolina/pi-kit@0.3.1`.
 - [x] Replace the OpenCode file URL with `@benjamolina/pi-kit@0.3.1` and verify CLIProxyAPI model discovery.
+- [x] Make the source repository public and configure npm Trusted Publishing for `release-npm.yml`.
+- [x] Replace the bootstrap token path with OIDC-only publication and npm provenance.
 
 ## Constraints
 
