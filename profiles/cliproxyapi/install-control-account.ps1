@@ -5,9 +5,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Version = "v0.6.0-rc.4"
+$Version = "v0.6.1"
 $FileName = "control-account-linux-amd64.so"
-$ExpectedSha256 = "5925524105d627eac91e39c2097e4a63c44caa8f642ce7044dd574d11ba106ea"
+$ExpectedSha256 = "760d7c230959735c8fd8b9942e0fe1d41a613deecff8dc600b322eff35c430bd"
 $Uri = "https://github.com/Clowraider/cli-control-account/releases/download/$Version/$FileName"
 $PluginDirectory = Join-Path $PSScriptRoot "..\..\..\CLIProxyAPI\plugins"
 

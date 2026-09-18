@@ -36,14 +36,14 @@ The Compose override binds every published port to `127.0.0.1`. Keep `remote-man
 
 The dashboard is trusted in-process dynamic-library code. Review the project and release before using it.
 
-This profile pins the prerelease `v0.6.0-rc.4`, tested with CLIProxyAPI `v7.3.4` at upstream commit `8335eac`. Install and verify its Linux amd64 binary:
+This profile pins `v0.6.1`, tested with CLIProxyAPI `v7.3.7` at upstream commit `b773607`. Install and verify its Linux amd64 binary:
 
 From a pi-kit checkout whose repository root is a sibling of the `CLIProxyAPI` checkout, run `profiles/cliproxyapi/install-control-account.ps1`. The script must remain in that pi-kit checkout so its fixed `../../../CLIProxyAPI/plugins` path resolves to the CLIProxyAPI plugin directory.
 
 The script downloads `control-account-linux-amd64.so` into `CLIProxyAPI\plugins\` and requires SHA-256:
 
 ```text
-5925524105d627eac91e39c2097e4a63c44caa8f642ce7044dd574d11ba106ea
+760d7c230959735c8fd8b9942e0fe1d41a613deecff8dc600b322eff35c430bd
 ```
 
 It refuses to overwrite an existing binary. To intentionally replace it:
