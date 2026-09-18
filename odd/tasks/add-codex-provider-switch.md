@@ -30,7 +30,7 @@ Add a safe, reversible command-line switch between the user's native OpenAI/Chat
 - Strategy: `ask-on-risk`.
 - Forecast: under 400 authored changed lines.
 - Branch: `feat/codex-provider-switch`.
-- Commits remain pending because the user has not explicitly authorized committing.
+- Work-unit commit: `f501faf` (`feat(codex): add provider switch commands`).
 
 ## TDD
 
@@ -84,7 +84,8 @@ Add a safe, reversible command-line switch between the user's native OpenAI/Chat
 - `bun run test:pack`: passed; isolated Pi, OpenCode, and Codex consumers resolved the packed archive.
 - `git diff --check`: passed.
 - Native risk assessment was unavailable because the native command returned empty output; policy treated the change as high risk and required the completed independent verification.
+- Work-unit commit: `f501faf` (`feat(codex): add provider switch commands`).
 
 ## Next step
 
-Optionally exercise the new commands against the user's live Codex configuration, then commit and deliver only with explicit user authorization.
+Open the issue-linked pull request, wait for CI, merge if clean, then prepare a patch release and install it only with explicit delivery authorization.
