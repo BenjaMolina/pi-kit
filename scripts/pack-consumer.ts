@@ -37,6 +37,7 @@ const REQUIRED_FILES = [
   "src/cliproxyapi/models.ts",
   "src/cliproxyapi/opencode.ts",
 ];
+const GENERATED_NATIVE_PLUGIN_ARTIFACT = /^profiles\/cliproxyapi\/plugins\/codex-catalog-display-name\/[^/]+\.(?:so|h)$/;
 
 type PackedFile = { path: string };
 type PackedArchive = { filename: string; size: number; unpackedSize: number; files: PackedFile[] };
@@ -84,6 +85,7 @@ export function assertArchiveContents(archive: PackedArchive): void {
   for (const path of paths) {
     assert(!/(^|\/)(?:tests?|\.github|\.git|node_modules|coverage|\.cache)(?:\/|$)/.test(path), `archive includes repository-only path ${path}`);
     assert(!/(^|\/)(?:\.env(?:\.|$)|[^/]+\.(?:tgz|log))$/.test(path), `archive includes secret or local artifact ${path}`);
+    assert(!GENERATED_NATIVE_PLUGIN_ARTIFACT.test(path), `archive includes generated native plugin artifact ${path}`);
     assert(!/^[A-Za-z]:[\\/]|^\//.test(path), `archive includes local absolute path ${path}`);
   }
 }
