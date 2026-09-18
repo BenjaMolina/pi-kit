@@ -1,8 +1,8 @@
 # Codex catalog display-name plugin
 
 A standalone CLIProxyAPI ABI v1 / RPC schema v6 Go shared-library plugin. It
-adds the Codex account scope to enriched catalog display names, so duplicate
-Codex entries remain distinguishable in clients that consume CLIProxyAPI's
+adds each scoped catalog entry's account scope to its display name, so duplicate
+entries remain distinguishable in clients that consume CLIProxyAPI's
 `{"models":[...]}` catalog.
 
 It deliberately declares **only** `response_interceptor` and serves only:
@@ -22,12 +22,20 @@ The interceptor changes a response only when all of these are true:
 
 - `SourceFormat` is `openai`, `StatusCode` is `200`, and `Stream` is `false`.
 - The root body is a JSON object containing a `models` array.
-- An entry has `slug` matching `codex-<scope>/<model>` and a non-empty
-  `display_name`.
+- An entry has a structurally valid `slug` matching `<scope>/<model>` and a
+  non-empty `display_name`. Both scope and model must be nonblank after
+  trimming whitespace.
 
-It rewrites only that display name to `display_name · scope`. A name already
-ending in that exact suffix is unchanged. Unscoped `codex-<model>` entries,
-other entries, headers, and all non-target fields stay untouched. Non-catalog
+It rewrites only that display name to `display_name · <scope>`, where `<scope>`
+is the complete prefix before the first `/`. For example,
+`claude-gedo/claude-fable-5` becomes `Claude Fable 5 · claude-gedo`,
+`agy-bmolina/gemini-3.8-flash-high` becomes
+`Gemini 3.8 Flash · agy-bmolina`, and
+`codex-jhoel/gpt-5.6-sol` becomes `GPT 5.6 Sol · codex-jhoel`. The plugin does
+not use a provider or model allowlist; a later slash remains part of the model
+component. A name already ending in that exact complete-scope suffix is
+unchanged. Unscoped entries, malformed scoped entries, other entries, headers,
+and all non-target fields stay untouched. Non-catalog
 OpenAI `{"object":"list","data":[...]}` responses, inference responses, bad
 JSON, and every unrelated response fail open: the plugin returns no body or
 header replacement, leaving host bytes and headers unchanged.
@@ -42,10 +50,10 @@ logs bodies, headers, credentials, or instructions.
 Docker is required. From this directory:
 
 ```powershell
-.\build-linux-amd64.ps1 -Version 1.0.0
+.\build-linux-amd64.ps1 -Version 1.1.0
 ```
 
-This creates `codex-catalog-display-name-linux-amd64-v1.0.0.so`, prints its
+This creates `codex-catalog-display-name-linux-amd64-v1.1.0.so`, prints its
 SHA-256, and deletes the c-shared generated `.h` header. The script mounts only
 this source directory and does not read, write, start, or restart CLIProxyAPI.
 
@@ -59,12 +67,12 @@ plugin mount; it does not read configuration, `.env`, auth, or secrets.
 ```powershell
 # Standard sibling checkout layout
 .\install.ps1 `
-  -Artifact .\codex-catalog-display-name-linux-amd64-v1.0.0.so `
+  -Artifact .\codex-catalog-display-name-linux-amd64-v1.1.0.so `
   -Sha256 '<build-output-sha256>'
 
 # Non-standard checkout or custom CLI_PROXY_PLUGIN_PATH mount
 .\install.ps1 `
-  -Artifact .\codex-catalog-display-name-linux-amd64-v1.0.0.so `
+  -Artifact .\codex-catalog-display-name-linux-amd64-v1.1.0.so `
   -Sha256 '<build-output-sha256>' `
   -Target 'C:\path\to\CLIProxyAPI\plugins'
 ```
@@ -82,8 +90,8 @@ visible under the Compose-mounted `plugins` directory. Do **not** paste secrets
 into plugin configuration; this plugin has no settings.
 
 After the next operator-approved CLIProxyAPI restart/reload, use a non-secret
-client request to the existing model catalog endpoint and confirm scoped Codex
-entries show ` · <scope>` while the balanced Codex entry does not. Also verify a
+client request to the existing model catalog endpoint and confirm scoped entries
+show ` · <scope>` while balanced and malformed entries do not. Also verify a
 normal inference request and a standard OpenAI `{object,data}` model list remain
 unchanged. Inspect the service's normal plugin-load status/logs without copying
 request bodies or authorization headers.
@@ -101,7 +109,8 @@ outside the mounted plugin directory allows an intentional re-install later.
 go test ./...
 ```
 
-The table-driven tests cover registration/reconfiguration, multiple scopes,
-balanced and idempotent names, malformed and unrelated shapes, source/status/
-stream guards, mixed entries, Go JSON base64/header semantics, and preservation
-of unknown fields and large numeric values.
+The table-driven tests cover registration/reconfiguration, complete generic
+scopes (including Codex, Claude, and Gemini slugs), first-slash behavior,
+balanced, malformed, and idempotent names, source/status/stream guards, mixed
+entries, Go JSON base64/header semantics, and preservation of unknown fields and
+large numeric values.

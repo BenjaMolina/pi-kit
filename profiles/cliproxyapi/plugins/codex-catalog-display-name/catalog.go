@@ -93,7 +93,7 @@ func pluginRegistration() registration {
 	return registration{
 		SchemaVersion: schemaVersion,
 		Metadata: metadata{
-			Name: pluginID, Version: "1.0.0", Author: "pi-kit",
+			Name: pluginID, Version: "1.1.0", Author: "pi-kit",
 			GitHubRepository: "https://github.com/benjamolina/pi-kit", ConfigFields: []any{},
 		},
 		Capabilities: capabilities{ResponseInterceptor: true},
@@ -171,7 +171,7 @@ func rewriteModel(raw json.RawMessage) (json.RawMessage, bool) {
 	if json.Unmarshal(fields["slug"], &slug) != nil || json.Unmarshal(fields["display_name"], &displayName) != nil {
 		return raw, false
 	}
-	scope, ok := scopedCodexSlug(slug)
+	scope, ok := scopedSlug(slug)
 	if !ok || displayName == "" || strings.HasSuffix(displayName, " · "+scope) {
 		return raw, false
 	}
@@ -187,17 +187,16 @@ func rewriteModel(raw json.RawMessage) (json.RawMessage, bool) {
 	return result, true
 }
 
-func scopedCodexSlug(slug string) (string, bool) {
-	if !strings.HasPrefix(slug, "codex-") {
+// scopedSlug extracts the complete nonblank prefix before the first slash from
+// a structurally valid <scope>/<model> slug. Provider naming is deliberately
+// not interpreted so every scoped catalog entry can be disambiguated.
+func scopedSlug(slug string) (string, bool) {
+	separator := strings.IndexByte(slug, '/')
+	if separator <= 0 || separator == len(slug)-1 {
 		return "", false
 	}
-	rest := strings.TrimPrefix(slug, "codex-")
-	separator := strings.IndexByte(rest, '/')
-	if separator <= 0 || separator == len(rest)-1 {
-		return "", false
-	}
-	scope := rest[:separator]
-	if strings.TrimSpace(scope) == "" || strings.TrimSpace(rest[separator+1:]) == "" {
+	scope, model := slug[:separator], slug[separator+1:]
+	if strings.TrimSpace(scope) == "" || strings.TrimSpace(model) == "" {
 		return "", false
 	}
 	return scope, true
