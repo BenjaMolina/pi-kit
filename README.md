@@ -2,6 +2,57 @@
 
 Reusable resources for [Pi](https://github.com/earendil-works/pi-mono) and an [OpenCode](https://opencode.ai/) CLIProxyAPI plugin, published as `@benjamolina/pi-kit`.
 
+## Codex + CLIProxyAPI: quick path
+
+> **Availability:** Codex support is present in this repository and will ship in the next package release. The currently published `@benjamolina/pi-kit@0.3.1` does not include it.
+
+For Codex CLI, the IDE extension, or the desktop app:
+
+1. Install [Codex](https://developers.openai.com/codex/cli/) and start CLIProxyAPI.
+2. Set `CLIPROXYAPI_API_KEY` to a CLIProxyAPI **client** API key. Optionally set `CLIPROXYAPI_BASE_URL`; it defaults to `http://127.0.0.1:8317/v1`.
+3. From this checkout, run `bun ./bin/pi-kit-codex.ts doctor`, then `bun ./bin/pi-kit-codex.ts install`.
+
+The packaged command is `pi-kit-codex`. After the next release includes this integration, invoke it with Bun as:
+
+```powershell
+bunx --package @benjamolina/pi-kit@<released-version> pi-kit-codex doctor
+bunx --package @benjamolina/pi-kit@<released-version> pi-kit-codex install
+```
+
+According to OpenAI's [Codex configuration documentation](https://developers.openai.com/codex/config/), Codex CLI, the IDE extension, and the desktop app share the user-level `config.toml`. One install therefore applies to all three.
+
+### Codex command reference
+
+| Command | Purpose |
+| --- | --- |
+| `pi-kit-codex doctor` | Read-only status check for Codex, environment, managed configuration, and CLIProxyAPI. It requests `/models`; it does not send billable inference. |
+| `pi-kit-codex install` | Adds the managed CLIProxyAPI provider configuration and, when the user has no model selection, configures the static default `gpt-5.5`, chosen after development and interoperability testing. It does not validate that model against the current proxy. |
+| `pi-kit-codex uninstall` | Removes only the configuration blocks managed by `pi-kit-codex`. |
+| `pi-kit-codex --help` | Shows the supported commands. |
+
+### Codex prerequisites and safety
+
+- **Bun and the command:** use the repository command above now, or Bun package invocation after the next release.
+- **Codex:** install it so `codex --version` is available.
+- **CLIProxyAPI:** keep the proxy running at the default URL or at the absolute URL in `CLIPROXYAPI_BASE_URL`.
+- **Credentials:** set `CLIPROXYAPI_API_KEY` in the environment. It is required to check `/models` and is never written to `config.toml`; the configuration stores only its environment-variable name.
+
+The installer preserves user intent: it does not overwrite an existing model or model-provider selection. If `model_providers.cliproxyapi` already exists without pi-kit management markers, installation fails closed rather than replacing it. Uninstall removes only marked managed blocks and leaves all other Codex settings intact.
+
+### Verify and troubleshoot Codex
+
+Run `pi-kit-codex doctor` before and after installation. A healthy result reports a Codex version, `API key: set`, a managed configuration state, and `Proxy models: reachable`.
+
+| Symptom | Resolution |
+| --- | --- |
+| `CODEX_HOME must be an absolute path` | Set `CODEX_HOME` to an absolute directory, or unset it to use `~/.codex`. |
+| `Codex config is not valid TOML` | Repair the reported `config.toml` syntax, then rerun `doctor` or `install`. |
+| `Proxy models: unreachable` | Start CLIProxyAPI and verify `CLIPROXYAPI_BASE_URL`, network reachability, and the client API key. |
+| `API key: missing` | Set `CLIPROXYAPI_API_KEY` in the terminal or user environment, then open a new terminal or refresh the current one. |
+| `model_providers.cliproxyapi already exists without pi-kit markers` | Keep and manage that existing provider yourself, or remove/rename it deliberately before running `install`; pi-kit will not overwrite it. |
+
+Codex cannot dynamically register a provider at runtime. According to OpenAI's [Codex configuration reference](https://developers.openai.com/codex/config-reference/), `model_catalog_json` is loaded at startup; catalog synchronization is outside this MVP. Restart Codex after installation or after changing proxy-side model availability. Use `doctor` to check the current proxy's `/models` endpoint separately.
+
 ## Included resources
 
 ### CLIProxyAPI local Docker profile

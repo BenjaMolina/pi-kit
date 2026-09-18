@@ -9,7 +9,7 @@ It is a template, not a source of credentials. Keep `config.yaml`, `docker-compo
 - Docker Desktop with Docker Compose
 - PowerShell
 - A clone or fork of [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)
-- The published `@benjamolina/pi-kit` package, or a checkout of this repository when maintaining the profile
+- A checkout of this repository beside the `CLIProxyAPI` checkout when using the Control Account installer
 
 ## 1. Prepare the local server configuration
 
@@ -38,7 +38,7 @@ The dashboard is trusted in-process dynamic-library code. Review the project and
 
 This profile pins the prerelease `v0.6.0-rc.4`, tested with CLIProxyAPI `v7.3.4` at upstream commit `8335eac`. Install and verify its Linux amd64 binary:
 
-Run `install-control-account.ps1` from the installed package's `profiles/cliproxyapi` directory (or this repository checkout).
+From a pi-kit checkout whose repository root is a sibling of the `CLIProxyAPI` checkout, run `profiles/cliproxyapi/install-control-account.ps1`. The script must remain in that pi-kit checkout so its fixed `../../../CLIProxyAPI/plugins` path resolves to the CLIProxyAPI plugin directory.
 
 The script downloads `control-account-linux-amd64.so` into `CLIProxyAPI\plugins\` and requires SHA-256:
 
@@ -84,11 +84,13 @@ Open `https://auth.openai.com/codex/device`, enter the one-time code shown in th
 
 Provider credentials persist under `auths/` and must never be committed or copied casually between machines.
 
-## 5. Connect Pi or OpenCode
+## 5. Connect Pi, OpenCode, or Codex
 
 Install `pi-kit`, configure `CLIPROXYAPI_API_KEY` using the client API key from `config.yaml`, then select a `cliproxyapi` model through Pi's `/model`. See the root [README](../../README.md#configure-cliproxyapi) for the shared environment-variable instructions.
 
 For OpenCode 1.18.18, load `@benjamolina/pi-kit@0.3.1` through OpenCode's `plugin` configuration. The root [OpenCode instructions](../../README.md#use-in-opencode-11818) include the portable npm installation, reload behavior, and graceful behavior when this local service is unavailable.
+
+For Codex CLI, the IDE extension, or the desktop app, use the repository command `bun ./bin/pi-kit-codex.ts doctor` followed by `bun ./bin/pi-kit-codex.ts install`. This support is unreleased: the published `@benjamolina/pi-kit@0.3.1` package does not include it. The installation updates their shared user-level `config.toml`; see the root [Codex quick path](../../README.md#codex--cliproxyapi-quick-path) for prerequisites, safety semantics, and troubleshooting.
 
 ## Update safely
 
