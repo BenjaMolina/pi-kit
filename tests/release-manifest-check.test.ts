@@ -7,6 +7,7 @@ const manifest = {
   private: false,
   main: "./opencode/cliproxyapi.ts",
   exports: "./opencode/cliproxyapi.ts",
+  bin: { "pi-kit-codex": "./bin/pi-kit-codex.ts" },
   publishConfig: { access: "public" },
   repository: { type: "git", url: "git+https://github.com/BenjaMolina/pi-kit.git" },
 };
@@ -22,5 +23,18 @@ describe("release manifest contract", () => {
       { packages: { "": manifest } },
       "v0.3.1",
     )).toThrow("exports must target the external OpenCode plugin");
+  });
+
+  test("rejects a missing, additional, or incorrect Codex bin target", () => {
+    for (const bin of [
+      {},
+      { "pi-kit-codex": "./bin/other.ts" },
+      { "pi-kit-codex": "./bin/pi-kit-codex.ts", another: "./bin/another.ts" },
+    ]) {
+      expect(() => assertReleaseManifest(
+        { ...manifest, bin },
+        { packages: { "": manifest } },
+      )).toThrow("bin must contain exactly pi-kit-codex targeting ./bin/pi-kit-codex.ts");
+    }
   });
 });

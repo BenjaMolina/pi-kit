@@ -6,6 +6,9 @@
   "type": "module",
   "main": "./opencode/cliproxyapi.ts",
   "exports": "./opencode/cliproxyapi.ts",
+  "bin": {
+    "pi-kit-codex": "./bin/pi-kit-codex.ts"
+  },
   "license": "MIT",
   "author": "BenjaMolina",
   "repository": {
@@ -36,6 +39,7 @@
     "prompts/",
     "skills/",
     "src/",
+    "bin/",
     "themes/",
     "README.md"
   ],
@@ -63,5 +67,8 @@
   },
   "devDependencies": {
     "opencode-ai": "1.18.18"
+  },
+  "dependencies": {
+    "@iarna/toml": "2.2.5"
   }
 }
