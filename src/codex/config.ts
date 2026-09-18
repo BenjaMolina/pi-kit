@@ -22,6 +22,12 @@ export type CodexConfigResult = {
   managedProvider: boolean;
 };
 
+export type CodexCLIProxyAPIStatus = {
+  path: string;
+  selection: "managed CLIProxyAPI" | "OpenAI default" | "user selected";
+  provider: "managed registered" | "user registered" | "not registered";
+};
+
 type ManagedBlocks = {
   root?: Block;
   provider?: Block;
@@ -85,6 +91,40 @@ export async function installCodexCLIProxyAPI(options: CodexConfigOptions = {}):
   validateToml(next, path);
   await replaceAtomically(path, original, next);
   return { path, changed: true, managedRoot, managedProvider };
+}
+
+export async function activateCodexCLIProxyAPI(options: CodexConfigOptions = {}): Promise<CodexConfigResult> {
+  return installCodexCLIProxyAPI(options);
+}
+
+export async function deactivateCodexCLIProxyAPI(options: CodexConfigOptions = {}): Promise<CodexConfigResult> {
+  const path = codexConfigPath(options);
+  const original = await readConfig(path);
+  const blocks = validateManagedBlocks(original);
+  validateToml(original, path);
+  if (!blocks.root) {
+    return { path, changed: false, managedRoot: false, managedProvider: Boolean(blocks.provider) };
+  }
+  assertRootBlock(blocks.root);
+  if (blocks.provider) assertProviderBlock(blocks.provider);
+
+  const next = original.slice(0, blocks.root.start) + original.slice(blocks.root.end);
+  validateToml(next, path);
+  await replaceAtomically(path, original, next);
+  return { path, changed: true, managedRoot: true, managedProvider: Boolean(blocks.provider) };
+}
+
+export async function getCodexCLIProxyAPIStatus(options: CodexConfigOptions = {}): Promise<CodexCLIProxyAPIStatus> {
+  const { path, content, blocks } = await readCodexConfig(options);
+  const parsed = validateToml(content, path);
+  if (blocks.root) assertRootBlock(blocks.root);
+  if (blocks.provider) assertProviderBlock(blocks.provider);
+
+  return {
+    path,
+    selection: blocks.root ? "managed CLIProxyAPI" : hasUserModelSelection(parsed) ? "user selected" : "OpenAI default",
+    provider: blocks.provider ? "managed registered" : providerFromParsedToml(parsed) ? "user registered" : "not registered",
+  };
 }
 
 export async function uninstallCodexCLIProxyAPI(options: CodexConfigOptions = {}): Promise<CodexConfigResult> {
