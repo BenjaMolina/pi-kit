@@ -7,3 +7,6 @@ coverage/
 .atl/
 tests/.opencode-runtime-smoke/
 *.tgz
+# Locally built CLIProxyAPI dynamic-library plugin artifacts.
+profiles/cliproxyapi/plugins/codex-catalog-display-name/*.so
+profiles/cliproxyapi/plugins/codex-catalog-display-name/*.h
