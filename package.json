@@ -1,6 +1,6 @@
 {
   "name": "@benjamolina/pi-kit",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": false,
   "description": "Reusable Pi resources and an OpenCode CLIProxyAPI plugin.",
   "type": "module",
