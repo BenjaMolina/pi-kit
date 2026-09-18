@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { assertArchiveContents } from "../scripts/pack-consumer";
+import packageManifest from "../package.json" with { type: "json" };
+import { assertArchiveContents, packageIdentity } from "../scripts/pack-consumer";
 
 const packageFiles = [
   "LICENSE",
@@ -18,7 +19,7 @@ const packageFiles = [
 
 function archive(paths = packageFiles) {
   return {
-    filename: "pi-kit-0.3.1.tgz",
+    filename: `pi-kit-${packageIdentity.version}.tgz`,
     size: 1,
     unpackedSize: 1,
     files: paths.map((path) => ({ path })),
@@ -26,6 +27,10 @@ function archive(paths = packageFiles) {
 }
 
 describe("Codex packed archive contract", () => {
+  test("uses the current package manifest identity", () => {
+    expect(packageIdentity).toEqual({ name: packageManifest.name, version: packageManifest.version });
+  });
+
   test("requires the Codex bin and every runtime source module", () => {
     expect(() => assertArchiveContents(archive())).not.toThrow();
 

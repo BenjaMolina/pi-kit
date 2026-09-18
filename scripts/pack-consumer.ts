@@ -4,8 +4,17 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const ROOT = process.cwd();
-const PACKAGE_NAME = "@benjamolina/pi-kit";
-const PACKAGE_VERSION = "0.3.1";
+type PackageManifest = { name: string; version: string };
+
+function currentPackageIdentity(): PackageManifest {
+  const manifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as Partial<PackageManifest>;
+  assert(typeof manifest.name === "string" && manifest.name.length > 0, "package.json must define a package name");
+  assert(typeof manifest.version === "string" && manifest.version.length > 0, "package.json must define a package version");
+  return { name: manifest.name, version: manifest.version };
+}
+
+export const packageIdentity = currentPackageIdentity();
+const { name: PACKAGE_NAME, version: PACKAGE_VERSION } = packageIdentity;
 const PI_VERSION = "0.85.1";
 const OPENCODE_VERSION = "1.18.18";
 const TOML_PACKAGE_NAME = "@iarna/toml";
