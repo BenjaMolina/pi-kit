@@ -3,6 +3,9 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  activateCodexCLIProxyAPI,
+  deactivateCodexCLIProxyAPI,
+  getCodexCLIProxyAPIStatus,
   installCodexCLIProxyAPI,
   resolveCodexHome,
   uninstallCodexCLIProxyAPI,
@@ -52,6 +55,58 @@ describe("Codex CLIProxyAPI configuration", () => {
 
     await uninstallCodexCLIProxyAPI(options(home));
     expect(await readFile(path, "utf8")).toBe(original);
+  });
+
+  test("deactivates only the verified managed selection and retains the provider", async () => {
+    const home = await fixtureHome();
+    const path = join(home, "config.toml");
+
+    await installCodexCLIProxyAPI(options(home));
+    const deactivated = await deactivateCodexCLIProxyAPI(options(home));
+    const content = await readFile(path, "utf8");
+    const repeated = await deactivateCodexCLIProxyAPI(options(home));
+
+    expect(deactivated.changed).toBe(true);
+    expect(content).not.toContain("Codex CLIProxyAPI v1 root");
+    expect(content).not.toContain('model_provider = "cliproxyapi"');
+    expect(content).toContain("Codex CLIProxyAPI v1 provider");
+    expect(repeated.changed).toBe(false);
+  });
+
+  test("reactivates the managed selection without overwriting a user selection", async () => {
+    const home = await fixtureHome();
+    const path = join(home, "config.toml");
+
+    await installCodexCLIProxyAPI(options(home));
+    await deactivateCodexCLIProxyAPI(options(home));
+    const activated = await activateCodexCLIProxyAPI(options(home));
+    expect(activated.changed).toBe(true);
+    expect(await readFile(path, "utf8")).toContain('model_provider = "cliproxyapi"');
+
+    const userHome = await fixtureHome();
+    const userPath = join(userHome, "config.toml");
+    const userConfig = 'model = "user-model"\nmodel_provider = "user-provider"\n';
+    await writeFile(userPath, userConfig);
+    const userActivated = await activateCodexCLIProxyAPI(options(userHome));
+
+    expect(userActivated.managedRoot).toBe(false);
+    expect(await readFile(userPath, "utf8")).toStartWith(userConfig);
+  });
+
+  test("reports managed selection and provider registration without reading credentials", async () => {
+    const home = await fixtureHome();
+    await installCodexCLIProxyAPI(options(home));
+
+    expect(await getCodexCLIProxyAPIStatus(options(home))).toMatchObject({
+      selection: "managed CLIProxyAPI",
+      provider: "managed registered",
+    });
+
+    await deactivateCodexCLIProxyAPI(options(home));
+    expect(await getCodexCLIProxyAPIStatus(options(home))).toMatchObject({
+      selection: "OpenAI default",
+      provider: "managed registered",
+    });
   });
 
   test("refuses an unmarked provider without modifying it", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCodexCLI } from "../src/codex/cli";
@@ -46,12 +46,48 @@ describe("pi-kit-codex CLI", () => {
     expect(errors).toEqual(["pi-kit-codex: CODEX_HOME must be an absolute path."]);
   });
 
+  test("switches providers and reports offline managed status", async () => {
+    const home = await mkdtemp(join(tmpdir(), "pi-kit-codex-cli-"));
+    const output: string[] = [];
+    let fetchCalls = 0;
+    const options = {
+      env: {
+        CODEX_HOME: home,
+        CLIPROXYAPI_BASE_URL: "http://proxy.test/v1",
+        CLIPROXYAPI_API_KEY: SECRET,
+      },
+      stdout: (line: string) => output.push(line),
+      fetch: async () => {
+        fetchCalls += 1;
+        return new Response();
+      },
+    };
+
+    await expect(runCodexCLI(["install"], options)).resolves.toBe(0);
+    await expect(runCodexCLI(["use", "openai"], options)).resolves.toBe(0);
+    await expect(runCodexCLI(["status"], options)).resolves.toBe(0);
+    expect(fetchCalls).toBe(0);
+    expect(output.join("\n")).toContain("Selection: OpenAI default");
+    expect(output.join("\n")).toContain("Provider: managed registered");
+    expect(await readFile(join(home, "config.toml"), "utf8")).toContain("Codex CLIProxyAPI v1 provider");
+
+    await expect(runCodexCLI(["use", "cliproxyapi"], options)).resolves.toBe(0);
+    expect(await readFile(join(home, "config.toml"), "utf8")).toContain('model_provider = "cliproxyapi"');
+
+    const userHome = await mkdtemp(join(tmpdir(), "pi-kit-codex-cli-"));
+    const userConfig = 'model = "user-model"\nmodel_provider = "user-provider"\n';
+    await writeFile(join(userHome, "config.toml"), userConfig);
+    await expect(runCodexCLI(["use", "cliproxyapi"], { ...options, env: { ...options.env, CODEX_HOME: userHome } })).resolves.toBe(0);
+    expect(await readFile(join(userHome, "config.toml"), "utf8")).toStartWith(userConfig);
+  });
+
   test("prints help and rejects unknown commands", async () => {
     const output: string[] = [];
     const options = { stdout: (line: string) => output.push(line) };
 
     await expect(runCodexCLI(["--help"], options)).resolves.toBe(0);
     expect(output.join("\n")).toContain("Usage: pi-kit-codex");
+    await expect(runCodexCLI(["use", "unexpected"], options)).resolves.toBe(1);
     await expect(runCodexCLI(["unexpected"], options)).resolves.toBe(1);
   });
 });
