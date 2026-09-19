@@ -56,3 +56,4 @@ Each work unit keeps tests and user-facing documentation with the behavior it ve
 - Diff hygiene: `git diff --check` — passed; Git emitted only existing line-ending normalization warnings for edited CRLF worktree files.
 - Rollback boundary: remove `src/copilot/vscode.ts` and its direct command, test, package-harness, documentation, and task-record references. Runtime writes are limited to atomically replacing the explicit/user `chatLanguageModels.json`; a failed replacement cleans its temporary file and leaves the previous target intact. Uninstall removes only the unique pi-kit-managed provider.
 - Authored changed-line estimate: approximately 560 additions and 11 deletions across the source module, focused tests, CLI, package harness, README, and this task record.
+- Work-unit commit: `aa79202` (`feat(copilot): add VS Code Custom Endpoint synchronization`).
