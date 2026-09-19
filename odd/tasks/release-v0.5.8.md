@@ -15,7 +15,14 @@ Publish pi-kit v0.5.8 with the CLIProxyAPI plugin management commands for `pi-ki
 
 - [x] Bump manifests to `0.5.8` without changing dependency resolution. Evidence: `package.json` and `package-lock.json` updated cleanly.
 - [x] Run release-manifest validation, full tests, packed-consumer verification, plugin Go tests, and `npm pack --dry-run`. Evidence: 51 tests passed; release manifest validates v0.5.8; packed consumers resolved cleanly.
-- [ ] Merge the release bump to `main` through a green PR linked to approved issue #45.
-- [ ] Create immutable annotated tag `v0.5.8` from the freshly fetched `origin/main` commit.
-- [ ] Upload precompiled Linux amd64 `.so` assets to GitHub Release `v0.5.8`.
-- [ ] Publish through `release-npm.yml` using trusted OIDC/provenance and verify npm.
+- [x] Merge the release bump to `main` through a green PR linked to approved issue #45. Evidence: PR #46 merged (`cf783ca`).
+- [x] Create immutable annotated tag `v0.5.8` from the freshly fetched `origin/main` commit. Evidence: tag `v0.5.8` created and pushed.
+- [x] Upload precompiled Linux amd64 `.so` assets to GitHub Release `v0.5.8`. Evidence: assets uploaded with SHA-256 verification (`1fab1d...`, `669596...`).
+- [x] Publish through `release-npm.yml` using trusted OIDC/provenance and verify npm. Evidence: `@benjamolina/pi-kit@0.5.8` published and verified live on npm.
+
+## Acceptance criteria
+
+- GitHub release `v0.5.8` points to the exact release commit on `main`.
+- GitHub Actions publishes `@benjamolina/pi-kit@0.5.8` using trusted OIDC/provenance.
+- npm reports exact version `0.5.8` and `latest` points to it.
+- Precompiled `.so` plugin assets are attached to release `v0.5.8`.
