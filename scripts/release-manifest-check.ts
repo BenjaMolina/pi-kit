@@ -29,9 +29,10 @@ export function assertReleaseManifest(manifest: Manifest, lockfile: Lockfile, ta
   assert(manifest.main === "./opencode/cliproxyapi.ts", "main must target the external OpenCode plugin");
   assert(manifest.exports === "./opencode/cliproxyapi.ts", "exports must target the external OpenCode plugin");
   assert(typeof manifest.bin === "object" && manifest.bin !== null && !Array.isArray(manifest.bin)
-    && Object.keys(manifest.bin).length === 1
-    && (manifest.bin as Record<string, unknown>)["pi-kit-codex"] === "./bin/pi-kit-codex.ts",
-  "bin must contain exactly pi-kit-codex targeting ./bin/pi-kit-codex.ts");
+    && Object.keys(manifest.bin).length === 2
+    && (manifest.bin as Record<string, unknown>)["pi-kit-codex"] === "./bin/pi-kit-codex.ts"
+    && (manifest.bin as Record<string, unknown>)["pi-kit-copilot"] === "./bin/pi-kit-copilot.ts",
+  "bin must contain exactly pi-kit-codex and pi-kit-copilot with their required targets");
   assert(typeof manifest.publishConfig === "object" && manifest.publishConfig !== null
     && (manifest.publishConfig as { access?: unknown }).access === "public", "publishConfig.access must be public");
   assert(typeof manifest.repository === "object" && manifest.repository !== null
