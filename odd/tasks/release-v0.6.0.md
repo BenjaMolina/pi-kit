@@ -17,10 +17,10 @@ Publish pi-kit v0.6.0 delivering the dynamic CLIProxyAPI integration for GitHub 
 
 - [x] Bump manifests to `0.6.0` without changing dependency resolution. Evidence: `package.json` and `package-lock.json` updated cleanly.
 - [x] Run release-manifest validation, full tests, packed-consumer verification, and `npm pack --dry-run`. Evidence: 71 tests passed across 12 files, manifest validated v0.6.0, packed consumers resolved cleanly.
-- [ ] Merge the release bump to `main` through a green PR linked to approved issue #53.
-- [ ] Create immutable annotated tag `v0.6.0` from the freshly fetched `origin/main` commit.
-- [ ] Upload precompiled Linux amd64 `.so` assets to GitHub Release `v0.6.0`.
-- [ ] Publish through `release-npm.yml` using trusted OIDC/provenance and verify npm.
+- [x] Merge the release bump to `main` through a green PR linked to approved issue #53. Evidence: PR #54 merged (`f0a204a`).
+- [x] Create immutable annotated tag `v0.6.0` from the freshly fetched `origin/main` commit. Evidence: tag `v0.6.0` pushed and verified (`f0a204afb82...`).
+- [x] Upload precompiled Linux amd64 `.so` assets to GitHub Release `v0.6.0`. Evidence: release assets uploaded (`1fab1d7f...` and `85686e7b...`).
+- [x] Publish through `release-npm.yml` using trusted OIDC/provenance and verify npm. Evidence: `@benjamolina/pi-kit@0.6.0` published and verified live on npm.
 
 ## Acceptance criteria
 
