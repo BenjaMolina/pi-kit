@@ -59,12 +59,14 @@ function memoryFileSystem(initial: Record<string, string> = {}, fail?: "write" |
   return { files, fileSystem };
 }
 
-function options(fileSystem: VSCodeFileSystem, path = "/isolated/chatLanguageModels.json") {
+function options(fileSystem: VSCodeFileSystem, path = "/isolated/chatLanguageModels.json", extra: Partial<Parameters<typeof syncVSCodeCLIProxyAPI>[0]> = {}) {
   return {
     vscodeConfigPath: path,
     fileSystem,
     env: { CLIPROXYAPI_API_KEY: SECRET, CLIPROXYAPI_BASE_URL: "http://proxy.test/v1/" },
     fetch: catalogFetch(),
+    platform: "linux" as const,
+    ...extra,
   };
 }
 
@@ -84,7 +86,7 @@ describe("VS Code Custom Endpoint synchronization", () => {
     const result = await syncVSCodeCLIProxyAPI(options(fileSystem));
     const content = files.get(result.path)!;
     const config = JSON.parse(content);
-    expect(result).toEqual({ path: result.path, changed: true, modelCount: 1 });
+    expect(result).toEqual({ path: result.path, changed: true, modelCount: 1, secretInjected: false });
     expect(Array.isArray(config)).toBe(true);
     expect(config).toHaveLength(1);
     expect(config[0]).toMatchObject({
@@ -177,7 +179,7 @@ describe("VS Code Custom Endpoint synchronization", () => {
       [path]: JSON.stringify([copilotProvider]),
     });
     const result = await syncVSCodeCLIProxyAPI(options(fileSystem, path));
-    expect(result).toEqual({ path, changed: true, modelCount: 1 });
+    expect(result).toEqual({ path, changed: true, modelCount: 1, secretInjected: false });
     const content = files.get(path)!;
     const array = JSON.parse(content);
     expect(Array.isArray(array)).toBe(true);
@@ -211,6 +213,86 @@ describe("VS Code Custom Endpoint synchronization", () => {
   test("reports managed status without accessing credentials", async () => {
     const { fileSystem } = memoryFileSystem();
     await syncVSCodeCLIProxyAPI(options(fileSystem));
-    await expect(vscodeConfigStatus({ vscodeConfigPath: "/isolated/chatLanguageModels.json", fileSystem })).resolves.toMatchObject({ state: "managed", modelCount: 1 });
+    await expect(vscodeConfigStatus({ vscodeConfigPath: "/isolated/chatLanguageModels.json", fileSystem, platform: "linux" })).resolves.toMatchObject({ state: "managed", modelCount: 1 });
+  });
+
+  test("preserves existing custom ${input:...} apiKey reference across synchronizations", async () => {
+    const path = "/isolated/chatLanguageModels.json";
+    const customKeyRef = "${input:chat.lm.secret.custom123}";
+    const { files, fileSystem } = memoryFileSystem({
+      [path]: JSON.stringify([{
+        name: "pi-kit CLIProxyAPI",
+        vendor: "customendpoint",
+        apiType: "responses",
+        apiKey: customKeyRef,
+        models: [],
+      }]),
+    });
+
+    const result = await syncVSCodeCLIProxyAPI(options(fileSystem, path));
+    expect(result.changed).toBe(true);
+    const content = files.get(path)!;
+    const array = JSON.parse(content);
+    expect(array[0].apiKey).toBe(customKeyRef);
+  });
+
+  test("injects secret into VS Code SecretStorage on Windows when mocks are provided", async () => {
+    const path = "/isolated/chatLanguageModels.json";
+    const storage = new Map<string, string>();
+    const { fileSystem } = memoryFileSystem();
+    const result = await syncVSCodeCLIProxyAPI(options(fileSystem, path, {
+      platform: "win32",
+      decryptDPAPI: async () => Buffer.alloc(32, 1),
+      localStateContent: JSON.stringify({
+        os_crypt: {
+          encrypted_key: Buffer.concat([Buffer.from("DPAPI"), Buffer.alloc(64, 2)]).toString("base64"),
+        },
+      }),
+      sqliteRun: async (_dbPath, _sql, params) => {
+        const [key, value] = params as [string, string];
+        storage.set(key, value);
+      },
+      sqliteGet: async (_dbPath, _sql, params) => {
+        const [key] = params as [string];
+        const value = storage.get(key);
+        return value !== undefined ? { key, value } : undefined;
+      },
+    }));
+
+    expect(result.secretInjected).toBe(true);
+    expect(storage.has("secret://pi-kit-cliproxyapi-api-key")).toBe(true);
+
+    const status = await vscodeConfigStatus(options(fileSystem, path, {
+      platform: "win32",
+      sqliteGet: async (_dbPath, _sql, params) => {
+        const [key] = params as [string];
+        const value = storage.get(key);
+        return value !== undefined ? { key, value } : undefined;
+      },
+    }));
+
+    expect(status).toMatchObject({
+      state: "managed",
+      modelCount: 1,
+      secretStatus: "configured",
+      apiKeyReference: "${input:pi-kit-cliproxyapi-api-key}",
+    });
+  });
+
+  test("reports secret status as missing on Windows when secret is not in database", async () => {
+    const path = "/isolated/chatLanguageModels.json";
+    const { fileSystem } = memoryFileSystem();
+    await syncVSCodeCLIProxyAPI(options(fileSystem, path));
+
+    const status = await vscodeConfigStatus(options(fileSystem, path, {
+      platform: "win32",
+      sqliteGet: async () => undefined,
+    }));
+
+    expect(status).toMatchObject({
+      state: "managed",
+      secretStatus: "missing",
+      apiKeyReference: "${input:pi-kit-cliproxyapi-api-key}",
+    });
   });
 });
