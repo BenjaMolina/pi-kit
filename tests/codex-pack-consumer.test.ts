@@ -15,6 +15,20 @@ const packageFiles = [
   "src/cliproxyapi/discovery.ts",
   "src/cliproxyapi/models.ts",
   "src/cliproxyapi/opencode.ts",
+  "profiles/cliproxyapi/plugins/codex-catalog-display-name/README.md",
+  "profiles/cliproxyapi/plugins/codex-catalog-display-name/build-linux-amd64.ps1",
+  "profiles/cliproxyapi/plugins/codex-catalog-display-name/catalog.go",
+  "profiles/cliproxyapi/plugins/codex-catalog-display-name/go.mod",
+  "profiles/cliproxyapi/plugins/codex-catalog-display-name/install.ps1",
+  "profiles/cliproxyapi/plugins/codex-catalog-display-name/main.go",
+  "profiles/cliproxyapi/plugins/codex-catalog-display-name/main_test.go",
+  "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/README.md",
+  "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/build-linux-amd64.ps1",
+  "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/go.mod",
+  "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/install.ps1",
+  "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/main.go",
+  "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/main_test.go",
+  "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/repair.go",
 ];
 
 function archive(paths = packageFiles) {
@@ -34,7 +48,14 @@ describe("Codex packed archive contract", () => {
   test("requires the Codex bin and every runtime source module", () => {
     expect(() => assertArchiveContents(archive())).not.toThrow();
 
-    for (const missing of ["bin/pi-kit-codex.ts", "src/codex/cli.ts", "src/codex/config.ts", "src/codex/doctor.ts"]) {
+    for (const missing of [
+      "bin/pi-kit-codex.ts",
+      "src/codex/cli.ts",
+      "src/codex/config.ts",
+      "src/codex/doctor.ts",
+      "profiles/cliproxyapi/plugins/codex-catalog-display-name/README.md",
+      "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/repair.go",
+    ]) {
       expect(() => assertArchiveContents(archive(packageFiles.filter((path) => path !== missing))))
         .toThrow(`archive omits ${missing}`);
     }
