@@ -22,6 +22,7 @@ Ship the proven Codex-to-Antigravity Gemini compatibility repair as a standalone
 
 ## Evidence
 
+- Delivery strategy: single cohesive PR with `size:exception`; 704 changed lines keep the plugin behavior, tests, build/install safety, documentation, and package verification reviewable as one rollback unit. Splitting would make intermediate slices incomplete or undistributable.
 - Branch: `feat/codex-antigravity-responses-repair`
 - Proven upstream trigger: Antigravity returns 429 for `You are Codex, ... based on GPT-5.` system identities; changing only the comma after `Codex` to a semicolon succeeds.
 - Existing CLIProxyAPI `request_normalizer` capability is sufficient; no core or ABI extension is required.
