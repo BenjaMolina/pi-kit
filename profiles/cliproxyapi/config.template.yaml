@@ -37,3 +37,7 @@ plugins:
   configs:
     control-account-linux-amd64:
       enabled: true
+    codex-catalog-display-name:
+      enabled: true
+    codex-antigravity-responses-repair:
+      enabled: true
