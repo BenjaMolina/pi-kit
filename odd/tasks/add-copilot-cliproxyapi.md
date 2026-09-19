@@ -43,4 +43,5 @@ Each work unit keeps tests and user-facing documentation with the behavior it ve
 - Release manifest: `bun scripts/release-manifest-check.ts` — validated `@benjamolina/pi-kit@0.5.9` with exactly `pi-kit-codex` and `pi-kit-copilot` bin targets.
 - Diff hygiene: `git diff --check` — passed.
 - Rollback boundary: remove the new `pi-kit-copilot` bin entry and `src/copilot/` modules plus their corresponding tests, package assertions, release-manifest requirement, and README section. No existing user configuration, VS Code file, Copilot configuration, credential file, or API key was mutated.
-- Authored changed-line estimate: 750 additions and 10 deletions across the work unit, including source, tests, package harness, release validation, README, and this task record.
+- Authored changed-line estimate: 751 additions and 10 deletions across the work unit, including source, tests, package harness, release validation, README, and this task record.
+- Work-unit commit: `4d7a06c` (`feat(copilot): add dynamic CLIProxyAPI launcher`).
