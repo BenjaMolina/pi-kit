@@ -57,7 +57,7 @@ GitHub Copilot CLI accepts custom providers only through BYOK process environmen
   - Allowed work-unit surfaces: `README.md`, `scripts/pack-consumer.ts`.
   - Checks: packed consumer and release-manifest validation.
 
-- [ ] **T4 — Verify live behavior and prepare delivery**
+- [x] **T4 — Verify live behavior and prepare delivery**
   - Run focused tests, full suite, package harness, release-manifest validation, and diff hygiene.
   - Perform a live Windows terminal selection and BYOK Copilot response check.
   - Record authored changed-line count, work-unit commit identities, RDD assessment outcomes, and PR slice boundaries.
@@ -108,7 +108,8 @@ GitHub Copilot CLI accepts custom providers only through BYOK process environmen
 - Stacked PR slice 1 opened: https://github.com/BenjaMolina/pi-kit/pull/60 (`feat/copilot): add searchable model picker`), 1,107 changed lines across picker and focused tests.
 - User explicitly authorized `size:exception` for exact PR #60; maintainer account verified with `ADMIN`, and read-back confirmed labels `type:feature` and `size:exception`.
 - Stacked PR slice 2 opened: https://github.com/BenjaMolina/pi-kit/pull/61 (`feat(copilot): integrate interactive model selection`), based on `feat/copilot-model-picker-core`, 351 changed lines relative to slice 1, with `type:feature`.
+- Live Windows Terminal verification passed on the feature branch: `launch --pick` selected `gemini-3.8-flash-high`, persisted state to the user pi-kit config path, launched Copilot through BYOK, and returned the exact expected response `PICKER_OK`.
 
 ## Next step
 
-Complete the live interactive Windows terminal selection and BYOK response check, monitor both PR checks, merge #60 first, retarget #61 to `main`, and merge #61 only after its isolated diff and checks remain clean.
+Merge #60 first, retarget #61 to `main`, verify its isolated diff and checks, then merge #61.
