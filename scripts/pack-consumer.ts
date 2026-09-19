@@ -49,6 +49,7 @@ const REQUIRED_FILES = [
   "src/codex/cli.ts",
   "src/codex/config.ts",
   "src/codex/doctor.ts",
+  "src/codex/plugins.ts",
   "src/cliproxyapi/discovery.ts",
   "src/cliproxyapi/models.ts",
   "src/cliproxyapi/opencode.ts",

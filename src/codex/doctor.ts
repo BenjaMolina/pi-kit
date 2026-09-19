@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { resolveCLIProxyBaseUrl } from "../cliproxyapi/models";
 import { readCodexConfig, resolveCodexHome, type CodexConfigOptions } from "./config";
+import { listPluginStatuses } from "./plugins";
 
 export type CodexCommandResult = {
   available: boolean;
@@ -10,6 +11,7 @@ export type CodexCommandResult = {
 export type CodexDoctorOptions = CodexConfigOptions & {
   fetch?: typeof globalThis.fetch;
   runCodex?: () => Promise<CodexCommandResult>;
+  target?: string;
 };
 
 export type CodexDoctorReport = {
@@ -18,6 +20,7 @@ export type CodexDoctorReport = {
   baseUrl: string;
   config: string;
   proxyModels: string;
+  plugins: string;
 };
 
 export async function runCodexVersion(): Promise<CodexCommandResult> {
@@ -53,6 +56,7 @@ export async function doctorCodexCLIProxyAPI(options: CodexDoctorOptions = {}): 
   const codexResult = await (options.runCodex ?? runCodexVersion)();
   const config = await configState(options);
   const proxyModels = apiKey ? await probeModels(baseUrl, apiKey, options.fetch ?? globalThis.fetch) : "not checked (API key missing)";
+  const plugins = auditPlugins(options);
 
   return {
     codex: codexResult.available ? codexResult.version ?? "available" : "not found",
@@ -60,7 +64,27 @@ export async function doctorCodexCLIProxyAPI(options: CodexDoctorOptions = {}): 
     baseUrl,
     config,
     proxyModels,
+    plugins,
   };
+}
+
+function auditPlugins(options: CodexDoctorOptions): string {
+  try {
+    const statuses = listPluginStatuses(options);
+    const total = statuses.length;
+    const verified = statuses.filter((s) => s.installed && s.sha256Match).length;
+    const mismatched = statuses.filter((s) => s.installed && !s.sha256Match);
+    if (verified === total) {
+      return `all installed (${verified}/${total} verified)`;
+    }
+    if (mismatched.length > 0) {
+      return `${verified}/${total} verified (${mismatched.map((m) => `${m.id}: checksum mismatch`).join(", ")})`;
+    }
+    const missing = statuses.filter((s) => !s.installed).map((s) => s.id);
+    return `${verified}/${total} installed (missing: ${missing.join(", ")})`;
+  } catch {
+    return "directory not detected";
+  }
 }
 
 async function configState(options: CodexConfigOptions): Promise<string> {
