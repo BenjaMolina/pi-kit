@@ -105,7 +105,10 @@ GitHub Copilot CLI accepts custom providers only through BYOK process environmen
   - `3a44e89` — `feat(copilot): add searchable model picker` (picker and focused tests).
   - `61f31cf` — `feat(copilot): integrate interactive model selection` (CLI integration, docs, package harness, and ODD record).
 - The installed global `pi-kit-copilot@0.6.1` does not yet contain `pick`; live validation must invoke the feature branch directly before release.
+- Stacked PR slice 1 opened: https://github.com/BenjaMolina/pi-kit/pull/60 (`feat/copilot): add searchable model picker`), 1,107 changed lines across picker and focused tests.
+- User explicitly authorized `size:exception` for exact PR #60; maintainer account verified with `ADMIN`, and read-back confirmed labels `type:feature` and `size:exception`.
+- Stacked PR slice 2 opened: https://github.com/BenjaMolina/pi-kit/pull/61 (`feat(copilot): integrate interactive model selection`), based on `feat/copilot-model-picker-core`, 351 changed lines relative to slice 1, with `type:feature`.
 
 ## Next step
 
-Run the live interactive Windows terminal selection and BYOK response check, record the result, then open slice 1 and request exact authorization for its documented `size:exception`.
+Complete the live interactive Windows terminal selection and BYOK response check, monitor both PR checks, merge #60 first, retarget #61 to `main`, and merge #61 only after its isolated diff and checks remain clean.
