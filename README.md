@@ -79,7 +79,17 @@ The packaged command is `pi-kit-copilot`. Its non-secret selection state is stor
 | `pi-kit-copilot status` | Reports the offline selection and state path without reading or printing credentials. |
 | `pi-kit-copilot launch -- <args...>` | Locates `copilot` on `PATH` or the Windows WinGet package directory, then starts it with BYOK environment variables. |
 | `pi-kit-copilot doctor` | Checks Copilot CLI/version, state, API-key presence, CLIProxyAPI model reachability, and selected-model availability without leaking credentials. |
-| `pi-kit-copilot sync` / `vscode` | Reserved for the VS Code Custom Endpoint follow-up. They do not mutate VS Code yet. |
+| `pi-kit-copilot sync` / `pi-kit-copilot vscode sync` | Discovers the current CLIProxyAPI catalog and synchronizes only pi-kit's user-level VS Code Custom Endpoint provider. It does not restart VS Code. |
+| `pi-kit-copilot vscode status` | Reports the managed VS Code provider state and model count without reading or printing credentials. |
+| `pi-kit-copilot vscode uninstall` | Removes only the unique pi-kit-managed VS Code Custom Endpoint provider; it is idempotent when absent. |
+
+### VS Code Custom Endpoint safety
+
+VS Code 1.138.0 reads Custom Endpoints from the user `chatLanguageModels.json`: `%APPDATA%/Code/User/chatLanguageModels.json` on Windows, `$XDG_CONFIG_HOME/Code/User/chatLanguageModels.json` on Linux, and the user Application Support directory on macOS. Set `PI_KIT_COPILOT_VSCODE_PATH` to an absolute path for an explicit test or alternate user-config location. The command never reads or writes workspace settings.
+
+Synchronization creates exactly one `pi-kit CLIProxyAPI` provider with the official `customendpoint`/`responses` format. Its dynamically discovered models use full `/v1/responses` URLs and include tool, vision, context, token, and supported reasoning metadata. The API key remains an input reference (`${input:pi-kit-cliproxyapi-api-key}`), never the literal `CLIPROXYAPI_API_KEY` value. Configure that VS Code input through VS Code's supported secret/input mechanism before using the endpoint.
+
+The provider is the managed boundary: all unrelated providers and models remain structural JSON values, but JSON formatting may normalize after synchronization. Synchronization fails closed on malformed JSON, an unsupported root/providers shape, duplicate pi-kit providers, or an ambiguous pi-kit-named provider. Atomic temporary-file replacement leaves the prior file intact if writing or renaming fails; uninstall removes only the unique managed provider and does not launch or restart VS Code.
 
 `launch` derives `COPILOT_PROVIDER_BEARER_TOKEN` from the process-local `CLIPROXYAPI_API_KEY`; it does not persist or print it. For Copilot CLI 1.0.86, it sets `COPILOT_PROVIDER_TYPE=openai`, the resolved CLIProxyAPI base URL, `COPILOT_PROVIDER_WIRE_API` (default `responses`), the exact `COPILOT_PROVIDER_WIRE_MODEL`, provider model/catalog IDs, `COPILOT_PROVIDER_MAX_OUTPUT_TOKENS` from discovered output metadata, and `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` as the remaining context budget after reserving output tokens. Run `doctor` before launching when connectivity is uncertain.
 

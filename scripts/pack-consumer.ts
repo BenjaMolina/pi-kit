@@ -57,6 +57,7 @@ const REQUIRED_FILES = [
   "src/copilot/cli.ts",
   "src/copilot/launcher.ts",
   "src/copilot/state.ts",
+  "src/copilot/vscode.ts",
   ...REQUIRED_NATIVE_PLUGIN_FILES,
 ];
 const GENERATED_NATIVE_PLUGIN_ARTIFACT = /^profiles\/cliproxyapi\/plugins\/[^/]+\/[^/]+\.(?:so|h)$/;
@@ -269,6 +270,14 @@ async function verifyCopilotConsumer(consumer: string, archivePath: string, regi
   assert(models.includes("mock-cli-proxy-model"), `packaged pi-kit-copilot models did not list the mock model:\n${models}`);
   await runCommand([bin, "use", "mock-cli-proxy-model"], consumer, environment);
   assert(existsSync(join(home, ".config", "pi-kit", "copilot.json")), "packaged pi-kit-copilot use did not create non-secret state");
+  await runCommand([bin, "vscode", "sync"], consumer, environment);
+  const vscodePath = join(process.platform === "win32" ? environment.APPDATA : environment.XDG_CONFIG_HOME, "Code", "User", "chatLanguageModels.json");
+  const vscodeConfig = readFileSync(vscodePath, "utf8");
+  assert(vscodeConfig.includes("pi-kit CLIProxyAPI") && vscodeConfig.includes("/v1/responses"),
+    "packaged pi-kit-copilot vscode sync did not write the managed Custom Endpoint catalog");
+  await runCommand([bin, "vscode", "uninstall"], consumer, environment);
+  assert(!readFileSync(vscodePath, "utf8").includes("pi-kit CLIProxyAPI"),
+    "packaged pi-kit-copilot vscode uninstall left its managed Custom Endpoint provider behind");
   assert(registry.requests.some((request) => request.path === "/v1/models"), "Copilot consumer did not query the CLIProxyAPI model catalog");
 }
 

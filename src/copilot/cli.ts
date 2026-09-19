@@ -10,6 +10,7 @@ import {
   type CopilotLauncherOptions,
 } from "./launcher";
 import { createCopilotState, readCopilotState, resolveCopilotStatePath, writeCopilotState } from "./state";
+import { syncVSCodeCLIProxyAPI, uninstallVSCodeCLIProxyAPI, vscodeConfigStatus } from "./vscode";
 
 export type CopilotCLIOptions = CopilotLauncherOptions & {
   stdout?: (line: string) => void;
@@ -26,11 +27,13 @@ const HELP = [
   "  status                  Report the local non-secret model selection.",
   "  launch [-- <args...>]   Start Copilot CLI with BYOK environment variables.",
   "  doctor                  Check Copilot CLI, state, key, model reachability, and selection.",
-  "  sync                    Reserved for future VS Code Custom Endpoint synchronization.",
-  "  vscode                  Reserved for future VS Code Custom Endpoint commands.",
+  "  sync                    Synchronize the VS Code user Custom Endpoint catalog.",
+  "  vscode sync             Synchronize the VS Code user Custom Endpoint catalog.",
+  "  vscode status           Report VS Code Custom Endpoint configuration state.",
+  "  vscode uninstall        Remove only the pi-kit VS Code Custom Endpoint provider.",
   "  --help                  Show this help message.",
   "",
-  "VS Code configuration is a follow-up work unit; these commands do not modify VS Code.",
+  "VS Code commands modify only the user chatLanguageModels.json; they never restart VS Code.",
 ].join("\n");
 
 export async function runCopilotCLI(args: string[], options: CopilotCLIOptions = {}): Promise<number> {
@@ -79,6 +82,36 @@ export async function runCopilotCLI(args: string[], options: CopilotCLIOptions =
       if (separator === -1 && launchArgs.length > 0) throw new Error("Use -- before Copilot arguments");
       return await (options.launch ?? launchCopilot)(launchArgs, options);
     }
+    if (command === "sync") {
+      if (args.length !== 1) throw new Error("sync does not accept options");
+      const result = await syncVSCodeCLIProxyAPI(options);
+      stdout(`VS Code Custom Endpoint: ${result.changed ? "synchronized" : "already current"} (${result.modelCount} models)`);
+      stdout(`VS Code config: ${result.path}`);
+      return 0;
+    }
+    if (command === "vscode") {
+      const subcommand = args[1];
+      if (subcommand === "sync" && args.length === 2) {
+        const result = await syncVSCodeCLIProxyAPI(options);
+        stdout(`VS Code Custom Endpoint: ${result.changed ? "synchronized" : "already current"} (${result.modelCount} models)`);
+        stdout(`VS Code config: ${result.path}`);
+        return 0;
+      }
+      if (subcommand === "status" && args.length === 2) {
+        const result = await vscodeConfigStatus(options);
+        stdout(`VS Code config: ${result.path}`);
+        stdout(`VS Code Custom Endpoint: ${result.state}`);
+        stdout(`VS Code models: ${result.modelCount}`);
+        return 0;
+      }
+      if (subcommand === "uninstall" && args.length === 2) {
+        const result = await uninstallVSCodeCLIProxyAPI(options);
+        stdout(`VS Code Custom Endpoint: ${result.changed ? "removed" : "not installed"} (${result.modelCount} models)`);
+        stdout(`VS Code config: ${result.path}`);
+        return 0;
+      }
+      throw new Error("Usage: pi-kit-copilot vscode <sync|status|uninstall>");
+    }
     if (command === "doctor") {
       if (args.length !== 1) throw new Error("doctor does not accept options");
       const report = await doctorCopilot(options);
@@ -88,9 +121,10 @@ export async function runCopilotCLI(args: string[], options: CopilotCLIOptions =
       stdout(`Base URL: ${report.baseUrl}`);
       stdout(`Proxy models: ${report.proxyModels}`);
       stdout(`Selection: ${report.selection}`);
+      stdout(`VS Code config: ${report.vscode}`);
+      stdout(`VS Code models: ${report.vscodeModels}`);
       return 0;
     }
-    if (command === "sync" || command === "vscode") throw new Error(`${command} is reserved for the VS Code follow-up and is not implemented.`);
     stderr(`Unknown command: ${command}\n\n${HELP}`);
     return 1;
   } catch (error) {
@@ -123,6 +157,7 @@ export async function doctorCopilot(options: CopilotCLIOptions = {}): Promise<Re
   const selection = !selected ? "none" : !models ? `${selected} (not checked)` : models.some((model) => model.id === selected)
     ? `${selected} (available)` : `${selected} (unavailable)`;
 
+  const vscode = await vscodeConfigStatus(options);
   return {
     copilot: version.available ? version.version ?? "available" : "not found",
     state: existsSync(resolveCopilotStatePath(options)) ? `present (${resolveCopilotStatePath(options)})` : "not created",
@@ -130,6 +165,8 @@ export async function doctorCopilot(options: CopilotCLIOptions = {}): Promise<Re
     baseUrl: safeBaseUrl(resolveCLIProxyBaseUrl(env.CLIPROXYAPI_BASE_URL)),
     proxyModels,
     selection,
+    vscode: vscode.state,
+    vscodeModels: String(vscode.modelCount),
   };
 }
 

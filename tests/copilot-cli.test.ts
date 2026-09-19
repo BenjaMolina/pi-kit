@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { VSCodeFileSystem } from "../src/copilot/vscode";
 import { runCopilotCLI } from "../src/copilot/cli";
 import {
   buildCopilotEnvironment,
@@ -198,7 +199,33 @@ describe("pi-kit-copilot BYOK launcher", () => {
     expect(report).toContain(`${MODEL.id} (unavailable)`);
   });
 
-  test("passes launch arguments only after -- and reserves VS Code commands", async () => {
+  test("routes VS Code synchronization, status, uninstall, and doctor without printing secrets", async () => {
+    const path = "/isolated/chatLanguageModels.json";
+    const files = new Map<string, string>();
+    const fileSystem = {
+      mkdir: async () => undefined,
+      readFile: async (target: string) => {
+        const content = files.get(target);
+        if (content === undefined) throw Object.assign(new Error("not found"), { code: "ENOENT" });
+        return content;
+      },
+      writeFile: async (target: string, content: string) => { files.set(target, content); },
+      rename: async (from: string, to: string) => { files.set(to, files.get(from)!); files.delete(from); },
+      unlink: async (target: string) => { files.delete(target); },
+    } as unknown as VSCodeFileSystem;
+    const output: string[] = [];
+    const options = { ...(await fixture()), vscodeConfigPath: path, fileSystem, stdout: (line: string) => output.push(line) };
+    await expect(runCopilotCLI(["sync"], options)).resolves.toBe(0);
+    await expect(runCopilotCLI(["vscode", "status"], options)).resolves.toBe(0);
+    await expect(runCopilotCLI(["vscode", "uninstall"], options)).resolves.toBe(0);
+    await expect(runCopilotCLI(["doctor"], { ...options, findExecutable: () => undefined })).resolves.toBe(0);
+    expect(output.join("\n")).toContain("VS Code Custom Endpoint: synchronized");
+    expect(output.join("\n")).toContain("VS Code Custom Endpoint: managed");
+    expect(output.join("\n")).toContain("VS Code Custom Endpoint: removed");
+    expect(output.join("\n")).not.toContain(SECRET);
+  });
+
+  test("passes launch arguments only after -- and rejects invalid VS Code commands", async () => {
     const options = await fixture();
     const calls: string[][] = [];
     await expect(runCopilotCLI(["launch", "--", "--allow-all-tools", "hello"], {
@@ -209,8 +236,8 @@ describe("pi-kit-copilot BYOK launcher", () => {
 
     const errors: string[] = [];
     await expect(runCopilotCLI(["launch", "hello"], { ...options, stderr: (line) => errors.push(line) })).resolves.toBe(1);
-    await expect(runCopilotCLI(["sync"], { ...options, stderr: (line) => errors.push(line) })).resolves.toBe(1);
+    await expect(runCopilotCLI(["vscode", "unknown"], { ...options, stderr: (line) => errors.push(line) })).resolves.toBe(1);
     expect(errors.join("\n")).toContain("Use -- before Copilot arguments");
-    expect(errors.join("\n")).toContain("VS Code follow-up");
+    expect(errors.join("\n")).toContain("Usage: pi-kit-copilot vscode");
   });
 });
