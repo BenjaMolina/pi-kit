@@ -15,5 +15,5 @@ In v1.0.0, the plugin only applied when `request.Model` contained `gemini`. Clau
 - [x] Bump plugin version in `main.go` and `build-linux-amd64.ps1` to `1.0.1`. Evidence: plugin reports version `1.0.1`.
 - [x] Rebuild Linux amd64 binary, calculate SHA-256, and update `MANAGED_PLUGINS` in `src/codex/plugins.ts`. Evidence: SHA-256 `85686e7bc6ee21b3ea3a0ea67343f79c97958753b10b48b70db4baac1a260e00`.
 - [x] Update documentation and tests in `pi-kit`. Evidence: 51 tests passed.
-- [ ] Open PR linked to #47, verify CI, merge to `main`.
-- [ ] Prepare release v0.5.9 and deploy updated plugin locally.
+- [x] Open PR linked to #47, verify CI, merge to `main`. Evidence: PR #48 merged to `main` (`0286eb9`).
+- [x] Prepare release v0.5.9 and deploy updated plugin locally. Evidence: PR #50 merged, release v0.5.9 published to npm, plugin installed and verified with Claude via Codex /v1/responses returning 200 in 3.9s.
