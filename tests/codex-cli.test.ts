@@ -114,6 +114,33 @@ describe("pi-kit-codex CLI", () => {
     expect(await readFile(path, "utf8")).toBe(legacyProvider);
   });
 
+  test("switches a provider with a valid trailing TUI section without changing it", async () => {
+    const home = await mkdtemp(join(tmpdir(), "pi-kit-codex-cli-"));
+    const path = join(home, "config.toml");
+    const trailing = '[tui]\ntheme = "default"\n';
+    const provider = [
+      "# >>> pi-kit Codex CLIProxyAPI v1 provider >>>",
+      "[model_providers.cliproxyapi]",
+      'name = "CLIProxyAPI"',
+      'base_url = "http://proxy.test/v1"',
+      'env_key = "CLIPROXYAPI_API_KEY"',
+      'wire_api = "responses"',
+      "# <<< pi-kit Codex CLIProxyAPI v1 provider <<<",
+      "",
+    ].join("\n");
+    const original = provider + trailing;
+    await writeFile(path, original);
+    const options = {
+      env: { CODEX_HOME: home, CLIPROXYAPI_BASE_URL: "http://proxy.test/v1", CLIPROXYAPI_API_KEY: SECRET },
+      stdout: () => undefined,
+    };
+
+    await expect(runCodexCLI(["status"], options)).resolves.toBe(0);
+    await expect(runCodexCLI(["use", "cliproxyapi"], options)).resolves.toBe(0);
+    await expect(runCodexCLI(["use", "openai"], options)).resolves.toBe(0);
+    expect(await readFile(path, "utf8")).toBe(original);
+  });
+
   test("prints help and rejects unknown commands", async () => {
     const output: string[] = [];
     const options = { stdout: (line: string) => output.push(line) };

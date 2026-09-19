@@ -145,6 +145,52 @@ describe("Codex CLIProxyAPI configuration", () => {
     expect(await readFile(path, "utf8")).toBe('\n[hooks.state]\nlast_checked = "sanitized"\n[tui]\ntheme = "default"\n');
   });
 
+  test("preserves interleaved and trailing sections after a managed provider marker", async () => {
+    const home = await fixtureHome();
+    const path = join(home, "config.toml");
+    const root = [
+      "# >>> pi-kit Codex CLIProxyAPI v1 root >>>",
+      'model = "gpt-5.5"',
+      'model_provider = "cliproxyapi"',
+      "# <<< pi-kit Codex CLIProxyAPI v1 root <<<",
+      "",
+    ].join("\n");
+    const provider = [
+      "# >>> pi-kit Codex CLIProxyAPI v1 provider >>>",
+      "[model_providers.cliproxyapi]",
+      'name = "CLIProxyAPI"',
+      'base_url = "http://proxy.test/v1"',
+      'env_key = "CLIPROXYAPI_API_KEY"',
+      'wire_api = "responses"',
+      "",
+      "[hooks.state]",
+      'last_checked = "sanitized"',
+      "# <<< pi-kit Codex CLIProxyAPI v1 provider <<<",
+      "",
+    ].join("\n");
+    const trailing = '[tui]\ntheme = "default"\n';
+    const original = root + provider + trailing;
+    await writeFile(path, original);
+
+    expect(await getCodexCLIProxyAPIStatus(options(home))).toMatchObject({
+      selection: "managed CLIProxyAPI",
+      provider: "managed registered",
+    });
+    expect(await readFile(path, "utf8")).toBe(original);
+
+    expect((await installCodexCLIProxyAPI(options(home))).changed).toBe(false);
+    expect(await readFile(path, "utf8")).toBe(original);
+
+    await deactivateCodexCLIProxyAPI(options(home));
+    expect(await readFile(path, "utf8")).toBe(provider + trailing);
+
+    await activateCodexCLIProxyAPI(options(home));
+    expect(await readFile(path, "utf8")).toBe(original);
+
+    await uninstallCodexCLIProxyAPI(options(home));
+    expect(await readFile(path, "utf8")).toBe('\n[hooks.state]\nlast_checked = "sanitized"\n[tui]\ntheme = "default"\n');
+  });
+
   test("refuses a changed managed provider payload in a legacy interleaved block", async () => {
     const home = await fixtureHome();
     const path = join(home, "config.toml");
@@ -163,7 +209,56 @@ describe("Codex CLIProxyAPI configuration", () => {
     await writeFile(path, original);
 
     await expect(getCodexCLIProxyAPIStatus(options(home))).rejects.toThrow("provider block has been modified");
+    await expect(installCodexCLIProxyAPI(options(home))).rejects.toThrow("provider block has been modified");
+    await expect(deactivateCodexCLIProxyAPI(options(home))).rejects.toThrow("provider block has been modified");
+    await expect(uninstallCodexCLIProxyAPI(options(home))).rejects.toThrow("provider block has been modified");
     expect(await readFile(path, "utf8")).toBe(original);
+  });
+
+  test("rejects duplicated, missing, or crossed managed markers without modifying configuration", async () => {
+    const home = await fixtureHome();
+    const path = join(home, "config.toml");
+    const validPayload = [
+      "[model_providers.cliproxyapi]",
+      'name = "CLIProxyAPI"',
+      'base_url = "http://proxy.test/v1"',
+      'env_key = "CLIPROXYAPI_API_KEY"',
+      'wire_api = "responses"',
+    ].join("\n");
+    const malformedConfigs = [
+      [
+        "# >>> pi-kit Codex CLIProxyAPI v1 provider >>>",
+        "# >>> pi-kit Codex CLIProxyAPI v1 provider >>>",
+        validPayload,
+        "# <<< pi-kit Codex CLIProxyAPI v1 provider <<<",
+        "",
+      ].join("\n"),
+      [
+        "# >>> pi-kit Codex CLIProxyAPI v1 provider >>>",
+        validPayload,
+        "",
+      ].join("\n"),
+      [
+        "# >>> pi-kit Codex CLIProxyAPI v1 root >>>",
+        'model = "gpt-5.5"',
+        'model_provider = "cliproxyapi"',
+        "# >>> pi-kit Codex CLIProxyAPI v1 provider >>>",
+        validPayload,
+        "# <<< pi-kit Codex CLIProxyAPI v1 root <<<",
+        "# <<< pi-kit Codex CLIProxyAPI v1 provider <<<",
+        "",
+      ].join("\n"),
+    ];
+
+    for (const original of malformedConfigs) {
+      await writeFile(path, original);
+      const error = original.includes("# <<< pi-kit Codex CLIProxyAPI v1 root <<<") ? "markers are crossed" : "markers are malformed or duplicated";
+      await expect(getCodexCLIProxyAPIStatus(options(home))).rejects.toThrow(error);
+      await expect(installCodexCLIProxyAPI(options(home))).rejects.toThrow(error);
+      await expect(deactivateCodexCLIProxyAPI(options(home))).rejects.toThrow(error);
+      await expect(uninstallCodexCLIProxyAPI(options(home))).rejects.toThrow(error);
+      expect(await readFile(path, "utf8")).toBe(original);
+    }
   });
 
   test("refuses an unmarked provider without modifying it", async () => {
