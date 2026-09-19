@@ -50,9 +50,9 @@ It refuses to overwrite an existing binary. To intentionally replace it:
 
 Re-run the same script with `-Force` only when intentionally replacing the existing binary.
 
-## Codex catalog display-name plugin
+## Native CLIProxyAPI plugins
 
-The standalone [Codex catalog display-name plugin](plugins/codex-catalog-display-name/README.md) disambiguates scoped Codex entries in CLIProxyAPI's enriched model catalog without modifying the CLIProxyAPI fork. Its README covers the Docker Linux amd64 build, checksum-verified installation, configuration, manual verification, and rollback. Building or copying the library does not start or restart the service; activation is an operator-approved later step.
+pi-kit owns the source for standalone plugins; CLIProxyAPI loads only the installed shared-library binary from its mounted `plugins` directory. The [Codex catalog display-name plugin](plugins/codex-catalog-display-name/README.md) disambiguates scoped entries in the enriched model catalog. The [Codex Antigravity Responses repair plugin](plugins/codex-antigravity-responses-repair/README.md) repairs the translated Codex system identity only for Gemini Antigravity OpenAI Responses requests. Each README covers Docker Linux amd64 builds, checksum-verified installation, configuration, manual verification, update, and rollback. Building or copying a library does not start or restart the service; activation is an operator-approved later step.
 
 ## 3. Start and verify
 
