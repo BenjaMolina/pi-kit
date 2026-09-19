@@ -23,6 +23,22 @@ const TOML_INTEGRITY = "sha512-trnsAYxU3xnS1gPHPyU961coFyLkh4gAD/0zQ5mymY4yOZ+CY
 const OPENCODE_BIN = process.platform === "win32"
   ? join(ROOT, "node_modules", ".bin", "opencode.cmd")
   : join(ROOT, "node_modules", ".bin", "opencode");
+const REQUIRED_NATIVE_PLUGIN_FILES = [
+  "profiles/cliproxyapi/plugins/codex-catalog-display-name/README.md",
+  "profiles/cliproxyapi/plugins/codex-catalog-display-name/build-linux-amd64.ps1",
+  "profiles/cliproxyapi/plugins/codex-catalog-display-name/catalog.go",
+  "profiles/cliproxyapi/plugins/codex-catalog-display-name/go.mod",
+  "profiles/cliproxyapi/plugins/codex-catalog-display-name/install.ps1",
+  "profiles/cliproxyapi/plugins/codex-catalog-display-name/main.go",
+  "profiles/cliproxyapi/plugins/codex-catalog-display-name/main_test.go",
+  "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/README.md",
+  "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/build-linux-amd64.ps1",
+  "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/go.mod",
+  "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/install.ps1",
+  "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/main.go",
+  "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/main_test.go",
+  "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/repair.go",
+];
 const REQUIRED_FILES = [
   "LICENSE",
   "README.md",
@@ -36,8 +52,9 @@ const REQUIRED_FILES = [
   "src/cliproxyapi/discovery.ts",
   "src/cliproxyapi/models.ts",
   "src/cliproxyapi/opencode.ts",
+  ...REQUIRED_NATIVE_PLUGIN_FILES,
 ];
-const GENERATED_NATIVE_PLUGIN_ARTIFACT = /^profiles\/cliproxyapi\/plugins\/codex-catalog-display-name\/[^/]+\.(?:so|h)$/;
+const GENERATED_NATIVE_PLUGIN_ARTIFACT = /^profiles\/cliproxyapi\/plugins\/[^/]+\/[^/]+\.(?:so|h)$/;
 
 type PackedFile = { path: string };
 type PackedArchive = { filename: string; size: number; unpackedSize: number; files: PackedFile[] };
