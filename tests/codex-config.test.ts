@@ -109,6 +109,62 @@ describe("Codex CLIProxyAPI configuration", () => {
     });
   });
 
+  test("preserves unrelated legacy sections interleaved before the managed provider end marker", async () => {
+    const home = await fixtureHome();
+    const path = join(home, "config.toml");
+    const legacyProvider = [
+      "# >>> pi-kit Codex CLIProxyAPI v1 provider >>>",
+      "[model_providers.cliproxyapi]",
+      'name = "CLIProxyAPI"',
+      'base_url = "http://proxy.test/v1"',
+      'env_key = "CLIPROXYAPI_API_KEY"',
+      'wire_api = "responses"',
+      "[hooks.state]",
+      'last_checked = "sanitized"',
+      "[tui]",
+      'theme = "default"',
+      "# <<< pi-kit Codex CLIProxyAPI v1 provider <<<",
+      "",
+    ].join("\n");
+    await writeFile(path, legacyProvider);
+
+    expect(await getCodexCLIProxyAPIStatus(options(home))).toMatchObject({
+      selection: "OpenAI default",
+      provider: "managed registered",
+    });
+    expect(await readFile(path, "utf8")).toBe(legacyProvider);
+
+    await activateCodexCLIProxyAPI(options(home));
+    expect(await readFile(path, "utf8")).toEndWith(legacyProvider);
+
+    await deactivateCodexCLIProxyAPI(options(home));
+    expect(await readFile(path, "utf8")).toBe(legacyProvider);
+
+    await uninstallCodexCLIProxyAPI(options(home));
+    expect(await readFile(path, "utf8")).toBe('[hooks.state]\nlast_checked = "sanitized"\n[tui]\ntheme = "default"\n');
+  });
+
+  test("refuses a changed managed provider payload in a legacy interleaved block", async () => {
+    const home = await fixtureHome();
+    const path = join(home, "config.toml");
+    const original = [
+      "# >>> pi-kit Codex CLIProxyAPI v1 provider >>>",
+      "[model_providers.cliproxyapi]",
+      'name = "CLIProxyAPI"',
+      'base_url = "http://proxy.test/v1"',
+      'env_key = "CLIPROXYAPI_API_KEY"',
+      'wire_api = "chat"',
+      "[hooks.state]",
+      'last_checked = "sanitized"',
+      "# <<< pi-kit Codex CLIProxyAPI v1 provider <<<",
+      "",
+    ].join("\n");
+    await writeFile(path, original);
+
+    await expect(getCodexCLIProxyAPIStatus(options(home))).rejects.toThrow("provider block has been modified");
+    expect(await readFile(path, "utf8")).toBe(original);
+  });
+
   test("refuses an unmarked provider without modifying it", async () => {
     const home = await fixtureHome();
     const path = join(home, "config.toml");

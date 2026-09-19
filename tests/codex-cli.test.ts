@@ -81,6 +81,38 @@ describe("pi-kit-codex CLI", () => {
     expect(await readFile(join(userHome, "config.toml"), "utf8")).toStartWith(userConfig);
   });
 
+  test("switches an interleaved legacy provider block without changing unrelated sections", async () => {
+    const home = await mkdtemp(join(tmpdir(), "pi-kit-codex-cli-"));
+    const path = join(home, "config.toml");
+    const legacyProvider = [
+      "# >>> pi-kit Codex CLIProxyAPI v1 provider >>>",
+      "[model_providers.cliproxyapi]",
+      'name = "CLIProxyAPI"',
+      'base_url = "http://proxy.test/v1"',
+      'env_key = "CLIPROXYAPI_API_KEY"',
+      'wire_api = "responses"',
+      "[hooks.state]",
+      'last_checked = "sanitized"',
+      "[tui]",
+      'theme = "default"',
+      "# <<< pi-kit Codex CLIProxyAPI v1 provider <<<",
+      "",
+    ].join("\n");
+    await writeFile(path, legacyProvider);
+    const output: string[] = [];
+    const options = {
+      env: { CODEX_HOME: home, CLIPROXYAPI_BASE_URL: "http://proxy.test/v1", CLIPROXYAPI_API_KEY: SECRET },
+      stdout: (line: string) => output.push(line),
+    };
+
+    await expect(runCodexCLI(["status"], options)).resolves.toBe(0);
+    await expect(runCodexCLI(["use", "cliproxyapi"], options)).resolves.toBe(0);
+    await expect(runCodexCLI(["use", "openai"], options)).resolves.toBe(0);
+
+    expect(output.join("\n")).toContain("Provider: managed registered");
+    expect(await readFile(path, "utf8")).toBe(legacyProvider);
+  });
+
   test("prints help and rejects unknown commands", async () => {
     const output: string[] = [];
     const options = { stdout: (line: string) => output.push(line) };

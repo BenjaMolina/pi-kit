@@ -61,8 +61,7 @@ export async function installCodexCLIProxyAPI(options: CodexConfigOptions = {}):
   const blocks = validateManagedBlocks(original);
   const parsed = validateToml(original, path);
   const existingProvider = providerFromParsedToml(parsed);
-  const env = options.env ?? process.env;
-  const baseUrl = configBaseUrl(resolveCLIProxyBaseUrl(env.CLIPROXYAPI_BASE_URL));
+  const baseUrl = managedBaseUrl(options);
 
   if (existingProvider && !blocks.provider) {
     throw new Error("model_providers.cliproxyapi already exists without pi-kit markers; refusing to overwrite it.");
@@ -138,10 +137,13 @@ export async function uninstallCodexCLIProxyAPI(options: CodexConfigOptions = {}
   if (blocks.root) assertRootBlock(blocks.root);
   if (blocks.provider) assertProviderBlock(blocks.provider);
 
-  const removable = [blocks.root, blocks.provider].filter((block): block is Block => Boolean(block))
-    .sort((left, right) => right.start - left.start);
   let next = original;
-  for (const block of removable) next = next.slice(0, block.start) + next.slice(block.end);
+  if (blocks.provider) {
+    next = next.slice(0, blocks.provider.start)
+      + providerInterleavedContent(blocks.provider, providerPrefix(blocks.provider, extractManagedBaseUrl(blocks.provider)))
+      + next.slice(blocks.provider.end);
+  }
+  if (blocks.root) next = next.slice(0, blocks.root.start) + next.slice(blocks.root.end);
 
   if (next === original) return { path, changed: false, managedRoot: Boolean(blocks.root), managedProvider: Boolean(blocks.provider) };
   validateToml(next, path);
@@ -162,15 +164,22 @@ function rootBlock(newline: string): string {
 }
 
 function providerBlock(newline: string, baseUrl: string): string {
+  return [PROVIDER_START, providerPayload(newline, baseUrl), PROVIDER_END].join(newline);
+}
+
+function providerPayload(newline: string, baseUrl: string): string {
   return [
-    PROVIDER_START,
     "[model_providers.cliproxyapi]",
     'name = "CLIProxyAPI"',
     `base_url = "${escapeTomlString(baseUrl)}"`,
     'env_key = "CLIPROXYAPI_API_KEY"',
     'wire_api = "responses"',
-    PROVIDER_END,
   ].join(newline);
+}
+
+function managedBaseUrl(options: CodexConfigOptions): string {
+  const env = options.env ?? process.env;
+  return configBaseUrl(resolveCLIProxyBaseUrl(env.CLIPROXYAPI_BASE_URL));
 }
 
 function configBaseUrl(value: string): string {
@@ -280,17 +289,66 @@ function assertRootBlock(block: Block): void {
 }
 
 function assertProviderBlock(block: Block, baseUrl?: string): void {
-  const newline = newlineFor(block.content);
-  const expected = baseUrl ? providerBlock(newline, baseUrl) : providerBlock(newline, extractManagedBaseUrl(block.content));
-  if (block.content !== expected && block.content !== expected + newline) {
+  const managedBaseUrl = baseUrl ?? extractManagedBaseUrl(block);
+  const prefix = providerPrefix(block, managedBaseUrl);
+  if (!block.content.startsWith(prefix)) {
+    throw new Error("Managed Codex CLIProxyAPI provider block has been modified; refusing to continue.");
+  }
+  providerInterleavedContent(block, prefix);
+  const parsed = parse(block.content) as Record<string, unknown>;
+  const provider = parsed.model_providers;
+  const managedProvider = provider && typeof provider === "object" && !Array.isArray(provider)
+    ? (provider as Record<string, unknown>).cliproxyapi
+    : undefined;
+  if (!isExactManagedProvider(managedProvider, managedBaseUrl)) {
     throw new Error("Managed Codex CLIProxyAPI provider block has been modified; refusing to continue.");
   }
 }
 
-function extractManagedBaseUrl(content: string): string {
-  const match = /^base_url = "((?:[^"\\]|\\.)*)"$/m.exec(content);
+function providerPrefix(block: Block, baseUrl: string): string {
+  return [PROVIDER_START, providerPayload(newlineFor(block.content), baseUrl)].join(newlineFor(block.content));
+}
+
+function providerInterleavedContent(block: Block, prefix: string): string {
+  const newline = newlineFor(block.content);
+  const remainder = block.content.slice(prefix.length);
+  const markerSuffix = `${newline}${PROVIDER_END}`;
+  const terminal = remainder.endsWith(markerSuffix + newline) ? markerSuffix + newline
+    : remainder.endsWith(markerSuffix) ? markerSuffix
+    : undefined;
+  if (!terminal) throw new Error("Managed Codex CLIProxyAPI provider block has been modified; refusing to continue.");
+  if (remainder === terminal) return "";
+  if (!remainder.startsWith(newline)) {
+    throw new Error("Managed Codex CLIProxyAPI provider block has been modified; refusing to continue.");
+  }
+  const interleaved = remainder.slice(newline.length, -terminal.length);
+  if (!interleaved.startsWith("[")) {
+    throw new Error("Managed Codex CLIProxyAPI provider block has been modified; refusing to continue.");
+  }
+  return interleaved + newline;
+}
+
+function extractManagedBaseUrl(block: Block): string {
+  const newline = newlineFor(block.content);
+  const prefix = `${PROVIDER_START}${newline}[model_providers.cliproxyapi]${newline}name = "CLIProxyAPI"${newline}base_url = "`;
+  if (!block.content.startsWith(prefix)) {
+    throw new Error("Managed Codex CLIProxyAPI provider block has been modified; refusing to continue.");
+  }
+  const match = /^((?:[^"\\]|\\.)*)"/.exec(block.content.slice(prefix.length));
   if (!match) throw new Error("Managed Codex CLIProxyAPI provider block has been modified; refusing to continue.");
   return match[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+}
+
+function isExactManagedProvider(value: unknown, baseUrl: string): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const provider = value as Record<string, unknown>;
+  const keys = Object.keys(provider).sort();
+  return keys.length === 4
+    && keys.every((key, index) => key === ["base_url", "env_key", "name", "wire_api"][index])
+    && provider.name === "CLIProxyAPI"
+    && provider.base_url === baseUrl
+    && provider.env_key === "CLIPROXYAPI_API_KEY"
+    && provider.wire_api === "responses";
 }
 
 async function readConfig(path: string): Promise<string> {
