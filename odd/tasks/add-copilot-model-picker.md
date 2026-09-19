@@ -32,7 +32,7 @@ GitHub Copilot CLI accepts custom providers only through BYOK process environmen
 
 ## Tasks
 
-- [ ] **T1 — Implement picker domain and terminal interaction**
+- [x] **T1 — Implement picker domain and terminal interaction**
   - Add deterministic case-insensitive filtering across ID, display name, and owner.
   - Render compact non-secret metadata.
   - Support filtering, keyboard navigation, confirmation, cancellation, and cleanup.
@@ -41,7 +41,7 @@ GitHub Copilot CLI accepts custom providers only through BYOK process environmen
   - Allowed work-unit surfaces: `src/copilot/picker.ts`, `tests/copilot-picker.test.ts`.
   - Checks: focused picker tests, terminal cleanup/cancellation tests.
 
-- [ ] **T2 — Integrate selection and picker-plus-launch command flow**
+- [x] **T2 — Integrate selection and picker-plus-launch command flow**
   - Add `pick [--wire-api=responses|completions]`.
   - Add an explicit picker-and-launch composition while preserving the existing `--` boundary.
   - Persist only after confirmed selection via existing state APIs.
@@ -50,7 +50,7 @@ GitHub Copilot CLI accepts custom providers only through BYOK process environmen
   - Allowed work-unit surfaces: `src/copilot/cli.ts`, `tests/copilot-cli.test.ts`.
   - Checks: focused CLI tests for routing, cancellation, state safety, and argument forwarding.
 
-- [ ] **T3 — Update documentation and packaged runtime coverage**
+- [x] **T3 — Update documentation and packaged runtime coverage**
   - Document interactive and automated workflows, cancellation, state behavior, and the native picker limitation.
   - Extend packed-consumer coverage for the published command surface without requiring a real TTY or credential.
   - Route: delegated writer; trigger: multi-file write.
@@ -100,8 +100,12 @@ GitHub Copilot CLI accepts custom providers only through BYOK process environmen
 - First independent verification passed every requested command but found two deterministic defects: split ANSI escape sequences could cancel as standalone Escape, and an initial render failure could leave terminal state altered.
 - A bounded correction added incremental escape buffering with deterministic timeout seams and moved initialization into a cleanup-safe lifecycle; correction checks reported 49 focused tests and 116 full-suite tests passing.
 - Parent spot check: `bun test tests/copilot-picker.test.ts tests/copilot-cli.test.ts` — 49 passed, 0 failed, 164 expectations.
-- Independent re-verification of the corrected candidate is in progress.
+- Independent re-verification passed all automated commands and confirmed the two corrected behaviors; status remained partial only because the live Windows terminal/BYOK acceptance check requires a real interactive terminal.
+- Parent work-unit commits created:
+  - `3a44e89` — `feat(copilot): add searchable model picker` (picker and focused tests).
+  - `61f31cf` — `feat(copilot): integrate interactive model selection` (CLI integration, docs, package harness, and ODD record).
+- The installed global `pi-kit-copilot@0.6.1` does not yet contain `pick`; live validation must invoke the feature branch directly before release.
 
 ## Next step
 
-Reconcile independent re-verification, create the two work-unit commits, then request exact authorization for the slice-1 `size:exception` before opening the stacked PRs.
+Run the live interactive Windows terminal selection and BYOK response check, record the result, then open slice 1 and request exact authorization for its documented `size:exception`.
