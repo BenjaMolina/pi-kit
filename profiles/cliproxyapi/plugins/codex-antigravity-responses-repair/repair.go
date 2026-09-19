@@ -90,7 +90,7 @@ func pluginRegistration() registration {
 	return registration{
 		SchemaVersion: schemaVersion,
 		Metadata: metadata{
-			Name: pluginID, Version: "1.0.0", Author: "pi-kit",
+			Name: pluginID, Version: "1.0.1", Author: "pi-kit",
 			GitHubRepository: "https://github.com/benjamolina/pi-kit", ConfigFields: []any{},
 		},
 		Capabilities: capabilities{RequestNormalizer: true},
@@ -114,8 +114,7 @@ func normalize(raw []byte) ([]byte, error) {
 
 func matchesTarget(request normalizeRequest) bool {
 	return strings.EqualFold(request.FromFormat, "openai-response") &&
-		strings.EqualFold(request.ToFormat, "antigravity") &&
-		strings.Contains(strings.ToLower(request.Model), "gemini")
+		strings.EqualFold(request.ToFormat, "antigravity")
 }
 
 // rewriteSystemInstruction changes exact Codex identity fragments only in
