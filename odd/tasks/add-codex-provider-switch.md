@@ -58,6 +58,13 @@ Add a safe, reversible command-line switch between the user's native OpenAI/Chat
   - Run focused tests, full tests, and packed-consumer verification.
   - Checks: `bun test`; `bun run test:pack`; `git diff --check`.
 
+- [x] **CPS-4 — Accept unrelated Codex sections inside the legacy managed delimiter**
+  - Route: delegated writer; production compatibility defect after v0.5.2.
+  - Reproduce the live shape where `[hooks.state]` and `[tui]` appear after the exact provider payload but before the provider end marker.
+  - Preserve fail-closed validation for changed provider keys while allowing unrelated valid TOML sections to survive status and switch operations.
+  - Add regression tests and verify against a sanitized copy of the live structure.
+  - Checks: focused tests, full tests, packed consumers, and `git diff --check`.
+
 ## Acceptance criteria
 
 1. `pi-kit-codex use openai` removes only pi-kit's active proxy selection and leaves the managed CLIProxyAPI provider registered.
@@ -85,7 +92,14 @@ Add a safe, reversible command-line switch between the user's native OpenAI/Chat
 - `git diff --check`: passed.
 - Native risk assessment was unavailable because the native command returned empty output; policy treated the change as high risk and required the completed independent verification.
 - Work-unit commit: `f501faf` (`feat(codex): add provider switch commands`).
+- v0.5.2 was published and installed successfully, but live `status` reproduced a compatibility defect: Codex-added `[hooks.state]` and `[tui]` sections were enclosed before the managed provider end marker, so byte-exact validation refused the otherwise unchanged provider payload.
+- Issue #31 was reopened and branch `fix/codex-managed-block-compat` created for CPS-4.
+- CPS-4 RED: the new sanitized legacy-shape regression failed because byte-exact provider-block validation rejected the interleaved `[hooks.state]` and `[tui]` sections.
+- CPS-4 GREEN: focused tests passed after validation was narrowed to the exact managed provider payload while preserving verified unrelated interleaved sections byte-for-byte. A changed managed `wire_api` value still fails closed without modifying the file.
+- CPS-4 parent spot check: 14 focused tests passed, 0 failures, 60 expectations.
+- CPS-4 independent verification: no critical, high, medium, or low findings; 35 full tests passed, packed consumers passed, and `git diff --check` passed.
+- Native risk assessment was schema-incompatible and therefore unavailable; policy treated CPS-4 as high risk and required the completed independent verification.
 
 ## Next step
 
-Open the issue-linked pull request, wait for CI, merge if clean, then prepare a patch release and install it only with explicit delivery authorization.
+Commit CPS-4 as one work unit, open the issue-linked PR, merge after CI, then deliver and install a v0.5.3 patch.
