@@ -101,11 +101,11 @@ export async function deactivateCodexCLIProxyAPI(options: CodexConfigOptions = {
   const original = await readConfig(path);
   const blocks = validateManagedBlocks(original);
   validateToml(original, path);
+  if (blocks.provider) assertProviderBlock(blocks.provider);
   if (!blocks.root) {
     return { path, changed: false, managedRoot: false, managedProvider: Boolean(blocks.provider) };
   }
   assertRootBlock(blocks.root);
-  if (blocks.provider) assertProviderBlock(blocks.provider);
 
   const next = original.slice(0, blocks.root.start) + original.slice(blocks.root.end);
   validateToml(next, path);
@@ -240,14 +240,11 @@ function hasUserModelSelection(parsed: Record<string, unknown>): boolean {
 function validateManagedBlocks(content: string): ManagedBlocks {
   const root = findUniqueBlock(content, ROOT_START, ROOT_END, "root");
   const provider = findUniqueBlock(content, PROVIDER_START, PROVIDER_END, "provider");
-  if (root && provider && root.start > provider.start) {
+  if (root && provider && root.end > provider.start) {
     throw new Error("Managed Codex CLIProxyAPI markers are crossed.");
   }
   if (root && root.start !== (content.startsWith("\uFEFF") ? 1 : 0)) {
     throw new Error("Managed Codex CLIProxyAPI root block is not at the document start.");
-  }
-  if (provider && provider.end !== content.length) {
-    throw new Error("Managed Codex CLIProxyAPI provider block is not at the document end.");
   }
   return { root, provider };
 }

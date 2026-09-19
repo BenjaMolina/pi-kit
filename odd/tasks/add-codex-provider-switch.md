@@ -72,6 +72,13 @@ Add a safe, reversible command-line switch between the user's native OpenAI/Chat
   - Preserve the original whitespace and unrelated sections byte-for-byte through status, switching, and uninstall.
   - Checks: focused tests, full tests, packed consumers, live read-only status, and `git diff --check`.
 
+- [x] **CPS-6 — Accept valid Codex sections after the managed provider marker**
+  - Route: delegated writer; production drift observed after v0.5.4 live success.
+  - Reproduce a valid trailing `[tui]` table after the managed provider end marker.
+  - Remove the assumption that the managed provider marker must terminate the document while keeping unique, ordered markers and exact provider semantics.
+  - Preserve trailing content byte-for-byte through status, switching, install, and uninstall; uninstall removes only the managed payload and markers.
+  - Checks: focused tests, full tests, packed consumers, and `git diff --check`.
+
 ## Acceptance criteria
 
 1. `pi-kit-codex use openai` removes only pi-kit's active proxy selection and leaves the managed CLIProxyAPI provider registered.
@@ -115,7 +122,18 @@ Add a safe, reversible command-line switch between the user's native OpenAI/Chat
 - CPS-5 parent spot check: 14 focused tests passed, 0 failures, 60 expectations.
 - CPS-5 independent verification: no critical, high, medium, or low findings; 35 full tests passed, packed consumers passed, and `git diff --check` passed.
 - Native risk assessment remained schema-incompatible and unavailable; policy treated CPS-5 as high risk and required the completed independent verification.
+- CPS-5 shipped as v0.5.4 and the first live read-only status passed. A later status call after global Bun installation revealed new Codex drift: a valid trailing `[tui]` table had been written after the managed provider end marker.
+- Managed provider keys/values and markers remain exact; CPS-6 removes only the brittle document-end ownership assumption.
+- Issue #31 was reopened and branch `fix/codex-managed-block-trailing-content` created.
+- CPS-6 RED: after adding sanitized config and CLI regressions with a valid trailing `[tui]` table, `bun test tests/codex-config.test.ts tests/codex-cli.test.ts` failed because validation required the managed provider block to be document-final. The run reported 14 passing and 2 failing tests; rejected fixtures were not mutated.
+- CPS-6 GREEN: focused tests passed after removing only the provider document-end constraint while retaining unique-marker, root-position, non-crossing, and exact-payload checks (17 tests, 0 failures, 89 expectations).
+- CPS-6 byte-preservation evidence: the config regression verifies exact original bytes after status and idempotent install, provider-plus-trailing bytes after deactivation, full restoration after activation, and preservation of the interleaved `[hooks.state]` plus trailing `[tui]` after uninstall. The CLI regression verifies status and both switch directions leave the trailing `[tui]` fixture byte-exact.
+- CPS-6 verification: focused tests passed (17 tests, 0 failures, 89 expectations); full tests passed (38 tests, 0 failures, 137 expectations); packed Pi, OpenCode, and Codex consumers passed; and `git diff --check` passed.
+- CPS-6 scope: no live Codex configuration, authentication or credential storage, versions, release metadata, commands, flags, or state fields were read or changed.
+- CPS-6 parent spot check: 17 focused tests passed, 0 failures, 89 expectations.
+- CPS-6 independent verification: no critical, high, medium, or low findings; 38 full tests passed, packed consumers passed, and `git diff --check` passed.
+- Native risk assessment remained schema-incompatible and unavailable; policy treated CPS-6 as high risk and required the completed independent verification.
 
 ## Next step
 
-Commit CPS-5, merge its issue-linked PR after CI, publish and install v0.5.4, then require the live read-only `status` check to pass before completing the feature.
+Commit CPS-6, merge its issue-linked PR after CI, release and install the next patch, then require repeated live read-only status checks before completing the feature.
