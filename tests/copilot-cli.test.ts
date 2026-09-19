@@ -221,6 +221,7 @@ describe("pi-kit-copilot BYOK launcher", () => {
     await expect(runCopilotCLI(["doctor"], { ...options, findExecutable: () => undefined })).resolves.toBe(0);
     expect(output.join("\n")).toContain("VS Code Custom Endpoint: synchronized");
     expect(output.join("\n")).toContain("VS Code Custom Endpoint: managed");
+    expect(output.join("\n")).toContain("VS Code secret:");
     expect(output.join("\n")).toContain("VS Code Custom Endpoint: removed");
     expect(output.join("\n")).not.toContain(SECRET);
   });

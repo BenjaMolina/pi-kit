@@ -13,5 +13,5 @@ Furthermore:
 ## Work Units
 - [x] Task 1: Implement `src/copilot/secret-storage.ts` supporting DPAPI + AES-256-GCM encryption and SQLite injection into `state.vscdb` on Windows, with comprehensive unit tests.
 - [x] Task 2: Enhance `src/copilot/vscode.ts` to preserve existing `${input:...}` apiKey references, integrate automated SecretStorage injection during `sync`, and report secret state in `vscodeConfigStatus`.
-- [ ] Task 3: Update `src/copilot/cli.ts` (`doctor` and `vscode status`), update tests in `tests/copilot-vscode.test.ts` and `tests/copilot-cli.test.ts`, update documentation in `README.md`, and run full test suites.
+- [x] Task 3: Update `src/copilot/cli.ts` (`doctor` and `vscode status`), update tests in `tests/copilot-vscode.test.ts` and `tests/copilot-cli.test.ts`, update documentation in `README.md`, and run full test suites.
 - [ ] Task 4: Submit Pull Request for Issue #55, verify all CI checks, and merge to `main`.

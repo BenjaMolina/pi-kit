@@ -85,7 +85,8 @@ export async function runCopilotCLI(args: string[], options: CopilotCLIOptions =
     if (command === "sync") {
       if (args.length !== 1) throw new Error("sync does not accept options");
       const result = await syncVSCodeCLIProxyAPI(options);
-      stdout(`VS Code Custom Endpoint: ${result.changed ? "synchronized" : "already current"} (${result.modelCount} models)`);
+      const secretNote = result.secretInjected ? ", secret stored in SecretStorage" : "";
+      stdout(`VS Code Custom Endpoint: ${result.changed ? "synchronized" : "already current"} (${result.modelCount} models${secretNote})`);
       stdout(`VS Code config: ${result.path}`);
       return 0;
     }
@@ -93,7 +94,8 @@ export async function runCopilotCLI(args: string[], options: CopilotCLIOptions =
       const subcommand = args[1];
       if (subcommand === "sync" && args.length === 2) {
         const result = await syncVSCodeCLIProxyAPI(options);
-        stdout(`VS Code Custom Endpoint: ${result.changed ? "synchronized" : "already current"} (${result.modelCount} models)`);
+        const secretNote = result.secretInjected ? ", secret stored in SecretStorage" : "";
+        stdout(`VS Code Custom Endpoint: ${result.changed ? "synchronized" : "already current"} (${result.modelCount} models${secretNote})`);
         stdout(`VS Code config: ${result.path}`);
         return 0;
       }
@@ -101,6 +103,7 @@ export async function runCopilotCLI(args: string[], options: CopilotCLIOptions =
         const result = await vscodeConfigStatus(options);
         stdout(`VS Code config: ${result.path}`);
         stdout(`VS Code Custom Endpoint: ${result.state}`);
+        stdout(`VS Code secret: ${result.secretStatus ?? "not installed"}`);
         stdout(`VS Code models: ${result.modelCount}`);
         return 0;
       }
@@ -122,6 +125,7 @@ export async function runCopilotCLI(args: string[], options: CopilotCLIOptions =
       stdout(`Proxy models: ${report.proxyModels}`);
       stdout(`Selection: ${report.selection}`);
       stdout(`VS Code config: ${report.vscode}`);
+      stdout(`VS Code secret: ${report.vscodeSecret}`);
       stdout(`VS Code models: ${report.vscodeModels}`);
       return 0;
     }
@@ -166,6 +170,7 @@ export async function doctorCopilot(options: CopilotCLIOptions = {}): Promise<Re
     proxyModels,
     selection,
     vscode: vscode.state,
+    vscodeSecret: vscode.secretStatus ?? "not installed",
     vscodeModels: String(vscode.modelCount),
   };
 }
