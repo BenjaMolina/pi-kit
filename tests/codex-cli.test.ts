@@ -91,6 +91,7 @@ describe("pi-kit-codex CLI", () => {
       'base_url = "http://proxy.test/v1"',
       'env_key = "CLIPROXYAPI_API_KEY"',
       'wire_api = "responses"',
+      "",
       "[hooks.state]",
       'last_checked = "sanitized"',
       "[tui]",

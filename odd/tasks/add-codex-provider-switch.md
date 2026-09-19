@@ -65,6 +65,13 @@ Add a safe, reversible command-line switch between the user's native OpenAI/Chat
   - Add regression tests and verify against a sanitized copy of the live structure.
   - Checks: focused tests, full tests, packed consumers, and `git diff --check`.
 
+- [x] **CPS-5 — Accept realistic whitespace before interleaved Codex sections**
+  - Route: delegated writer; follow-up production compatibility defect after v0.5.3.
+  - Reproduce the exact structural separator: one blank line between `wire_api` and `[hooks.state]`.
+  - Accept valid whitespace without weakening exact managed provider semantics or marker checks.
+  - Preserve the original whitespace and unrelated sections byte-for-byte through status, switching, and uninstall.
+  - Checks: focused tests, full tests, packed consumers, live read-only status, and `git diff --check`.
+
 ## Acceptance criteria
 
 1. `pi-kit-codex use openai` removes only pi-kit's active proxy selection and leaves the managed CLIProxyAPI provider registered.
@@ -99,7 +106,16 @@ Add a safe, reversible command-line switch between the user's native OpenAI/Chat
 - CPS-4 parent spot check: 14 focused tests passed, 0 failures, 60 expectations.
 - CPS-4 independent verification: no critical, high, medium, or low findings; 35 full tests passed, packed consumers passed, and `git diff --check` passed.
 - Native risk assessment was schema-incompatible and therefore unavailable; policy treated CPS-4 as high risk and required the completed independent verification.
+- CPS-4 shipped as v0.5.3, but the first live status check exposed a narrower formatting mismatch: the real file has one blank line between `wire_api` and `[hooks.state]`, while the regression fixture placed the table header immediately on the next line.
+- The live provider values and markers still match exactly; CPS-5 tracks whitespace compatibility without weakening provider ownership.
+- Issue #31 was reopened and branch `fix/codex-managed-block-whitespace` created.
+- CPS-5 RED: after adding the faithful blank separator to the sanitized config and CLI legacy fixtures, `bun test tests/codex-config.test.ts tests/codex-cli.test.ts` failed because provider-interleaved validation required the first character after the managed payload newline to be `[`. The test run reported 12 passing and 2 failing tests; no config fixture was mutated after rejection.
+- CPS-5 GREEN: provider-interleaved validation now permits separator whitespace only when its first non-whitespace character begins an unrelated TOML table. Focused tests passed (14 tests, 0 failures, 60 expectations).
+- CPS-5 exact preservation evidence: the config fixture asserts byte-exact content after status, `use cliproxyapi`, and `use openai`; its uninstall assertion preserves the original leading blank separator before `[hooks.state]`. The CLI fixture asserts the original blank-separated block byte-for-byte after status and both switch commands.
+- CPS-5 parent spot check: 14 focused tests passed, 0 failures, 60 expectations.
+- CPS-5 independent verification: no critical, high, medium, or low findings; 35 full tests passed, packed consumers passed, and `git diff --check` passed.
+- Native risk assessment remained schema-incompatible and unavailable; policy treated CPS-5 as high risk and required the completed independent verification.
 
 ## Next step
 
-Commit CPS-4 as one work unit, open the issue-linked PR, merge after CI, then deliver and install a v0.5.3 patch.
+Commit CPS-5, merge its issue-linked PR after CI, publish and install v0.5.4, then require the live read-only `status` check to pass before completing the feature.

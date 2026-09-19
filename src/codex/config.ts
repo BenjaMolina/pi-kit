@@ -322,7 +322,8 @@ function providerInterleavedContent(block: Block, prefix: string): string {
     throw new Error("Managed Codex CLIProxyAPI provider block has been modified; refusing to continue.");
   }
   const interleaved = remainder.slice(newline.length, -terminal.length);
-  if (!interleaved.startsWith("[")) {
+  const firstTable = interleaved.search(/\S/);
+  if (firstTable === -1 || interleaved[firstTable] !== "[") {
     throw new Error("Managed Codex CLIProxyAPI provider block has been modified; refusing to continue.");
   }
   return interleaved + newline;

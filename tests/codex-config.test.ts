@@ -119,6 +119,7 @@ describe("Codex CLIProxyAPI configuration", () => {
       'base_url = "http://proxy.test/v1"',
       'env_key = "CLIPROXYAPI_API_KEY"',
       'wire_api = "responses"',
+      "",
       "[hooks.state]",
       'last_checked = "sanitized"',
       "[tui]",
@@ -141,7 +142,7 @@ describe("Codex CLIProxyAPI configuration", () => {
     expect(await readFile(path, "utf8")).toBe(legacyProvider);
 
     await uninstallCodexCLIProxyAPI(options(home));
-    expect(await readFile(path, "utf8")).toBe('[hooks.state]\nlast_checked = "sanitized"\n[tui]\ntheme = "default"\n');
+    expect(await readFile(path, "utf8")).toBe('\n[hooks.state]\nlast_checked = "sanitized"\n[tui]\ntheme = "default"\n');
   });
 
   test("refuses a changed managed provider payload in a legacy interleaved block", async () => {
