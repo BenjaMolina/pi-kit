@@ -3,6 +3,11 @@ import { homedir as defaultHomedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { discoverCLIProxyModels, type CLIProxyFetch } from "../cliproxyapi/discovery";
 import { resolveCLIProxyBaseUrl, type CLIProxyModel } from "../cliproxyapi/models";
+import {
+  hasVSCodeSecret,
+  injectVSCodeSecret,
+  type SecretStorageOptions,
+} from "./secret-storage";
 
 const MANAGED_PROVIDER_NAME = "pi-kit CLIProxyAPI";
 const API_KEY_REFERENCE = "${input:pi-kit-cliproxyapi-api-key}";
@@ -17,7 +22,7 @@ export type VSCodeFileSystem = {
 
 const defaultFileSystem: VSCodeFileSystem = { mkdir, readFile, rename, unlink, writeFile };
 
-export type VSCodeOptions = {
+export type VSCodeOptions = SecretStorageOptions & {
   env?: Record<string, string | undefined>;
   fetch?: CLIProxyFetch;
   fileSystem?: VSCodeFileSystem;
@@ -30,12 +35,15 @@ export type VSCodeConfigResult = {
   path: string;
   changed: boolean;
   modelCount: number;
+  secretInjected?: boolean;
 };
 
 export type VSCodeConfigStatus = {
   path: string;
   state: "not installed" | "managed" | "invalid or unsafe";
   modelCount: number;
+  secretStatus?: "configured" | "missing" | "unsupported platform" | "not installed";
+  apiKeyReference?: string;
 };
 
 type VSCodeProvider = Record<string, unknown>;
@@ -71,19 +79,39 @@ export function resolveVSCodeConfigPath(options: VSCodeOptions = {}): string {
 
 export async function syncVSCodeCLIProxyAPI(options: VSCodeOptions = {}): Promise<VSCodeConfigResult> {
   const env = options.env ?? process.env;
+  const apiKey = env.CLIPROXYAPI_API_KEY?.trim();
   const models = await discoverModels(options);
   const path = resolveVSCodeConfigPath(options);
   const original = await readConfig(path, options);
   const parsed = parseConfig(original, path);
   const managedIndex = managedProviderIndex(parsed.providers, path);
-  const provider = managedProvider(models, resolveCLIProxyBaseUrl(env.CLIPROXYAPI_BASE_URL));
+
+  let apiKeyReference = API_KEY_REFERENCE;
+  if (managedIndex !== undefined) {
+    const existing = parsed.providers[managedIndex] as VSCodeProvider;
+    if (typeof existing.apiKey === "string" && existing.apiKey.trim().startsWith("${input:")) {
+      apiKeyReference = existing.apiKey.trim();
+    }
+  }
+
+  const provider = managedProvider(models, resolveCLIProxyBaseUrl(env.CLIPROXYAPI_BASE_URL), apiKeyReference);
   const nextProviders = managedIndex === undefined
     ? [...parsed.providers, provider]
     : parsed.providers.map((current, index) => index === managedIndex ? provider : current);
   const content = serializeConfig(parsed, nextProviders);
 
   if (content !== original) await replaceAtomically(path, content, options);
-  return { path, changed: content !== original, modelCount: models.length };
+
+  let secretInjected = false;
+  if (apiKey && apiKeyReference === API_KEY_REFERENCE) {
+    try {
+      secretInjected = await injectVSCodeSecret("pi-kit-cliproxyapi-api-key", apiKey, options);
+    } catch {
+      secretInjected = false;
+    }
+  }
+
+  return { path, changed: content !== original, modelCount: models.length, secretInjected };
 }
 
 export async function uninstallVSCodeCLIProxyAPI(options: VSCodeOptions = {}): Promise<VSCodeConfigResult> {
@@ -107,12 +135,29 @@ export async function vscodeConfigStatus(options: VSCodeOptions = {}): Promise<V
   const path = resolveVSCodeConfigPath(options);
   try {
     const original = await readConfig(path, options);
-    if (original === undefined) return { path, state: "not installed", modelCount: 0 };
+    if (original === undefined) return { path, state: "not installed", modelCount: 0, secretStatus: "not installed" };
     const parsed = parseConfig(original, path);
     const index = managedProviderIndex(parsed.providers, path);
-    if (index === undefined) return { path, state: "not installed", modelCount: 0 };
+    if (index === undefined) return { path, state: "not installed", modelCount: 0, secretStatus: "not installed" };
     const provider = parsed.providers[index] as VSCodeProvider;
-    return { path, state: "managed", modelCount: Array.isArray(provider.models) ? provider.models.length : 0 };
+    const modelCount = Array.isArray(provider.models) ? provider.models.length : 0;
+    const apiKey = typeof provider.apiKey === "string" ? provider.apiKey.trim() : undefined;
+
+    let secretStatus: VSCodeConfigStatus["secretStatus"] = "missing";
+    const platform = options.platform ?? process.platform;
+    if (apiKey?.startsWith("${input:") && apiKey.endsWith("}")) {
+      const secretId = apiKey.slice(8, -1).trim();
+      const exists = await hasVSCodeSecret(secretId, options);
+      if (exists) {
+        secretStatus = "configured";
+      } else if (platform !== "win32") {
+        secretStatus = "unsupported platform";
+      } else {
+        secretStatus = "missing";
+      }
+    }
+
+    return { path, state: "managed", modelCount, secretStatus, apiKeyReference: apiKey };
   } catch {
     return { path, state: "invalid or unsafe", modelCount: 0 };
   }
@@ -129,11 +174,11 @@ async function discoverModels(options: VSCodeOptions): Promise<CLIProxyModel[]> 
   });
 }
 
-function managedProvider(models: CLIProxyModel[], baseUrl: string): VSCodeProvider {
+function managedProvider(models: CLIProxyModel[], baseUrl: string, apiKeyReference = API_KEY_REFERENCE): VSCodeProvider {
   return {
     name: MANAGED_PROVIDER_NAME,
     vendor: "customendpoint",
-    apiKey: API_KEY_REFERENCE,
+    apiKey: apiKeyReference,
     apiType: "responses",
     models: models.map((model) => ({
       id: model.id,
