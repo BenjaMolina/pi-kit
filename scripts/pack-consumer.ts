@@ -266,6 +266,17 @@ async function verifyCopilotConsumer(consumer: string, archivePath: string, regi
   assert(existsSync(bin), "npm did not expose the pi-kit-copilot package bin");
   const help = await runCommand([bin, "--help"], consumer, environment);
   assert(help.includes("Usage: pi-kit-copilot"), `packaged pi-kit-copilot --help did not print usage:\n${help}`);
+  const pickChild = Bun.spawn([bin, "pick"], { cwd: consumer, env: { ...process.env, ...environment }, stdout: "pipe", stderr: "pipe" });
+  const [pickStdout, pickStderr, pickExitCode] = await Promise.all([
+    new Response(pickChild.stdout).text(),
+    new Response(pickChild.stderr).text(),
+    pickChild.exited,
+  ]);
+  const pickOutput = `${pickStdout}\n${pickStderr}`;
+  assert(pickExitCode === 1, `packaged pi-kit-copilot pick should exit 1 on non-TTY, got ${pickExitCode}:\n${pickOutput}`);
+  assert(pickOutput.includes("requires an interactive terminal (TTY)"),
+    `packaged pi-kit-copilot pick did not report non-TTY refusal:\n${pickOutput}`);
+
   const models = await runCommand([bin, "models"], consumer, environment);
   assert(models.includes("mock-cli-proxy-model"), `packaged pi-kit-copilot models did not list the mock model:\n${models}`);
   await runCommand([bin, "use", "mock-cli-proxy-model"], consumer, environment);

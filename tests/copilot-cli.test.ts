@@ -241,4 +241,132 @@ describe("pi-kit-copilot BYOK launcher", () => {
     expect(errors.join("\n")).toContain("Use -- before Copilot arguments");
     expect(errors.join("\n")).toContain("Usage: pi-kit-copilot vscode");
   });
+
+  test("interactively selects a model and persists non-secret state via pick", async () => {
+    const options = await fixture();
+    const output: string[] = [];
+    let pickerCalled = false;
+
+    await expect(runCopilotCLI(["pick"], {
+      ...options,
+      picker: async (models) => {
+        pickerCalled = true;
+        return models[0];
+      },
+      stdout: (line) => output.push(line),
+    })).resolves.toBe(0);
+
+    expect(pickerCalled).toBe(true);
+    expect(output.join("\n")).toContain(`Selected Copilot model: ${MODEL.id}`);
+    expect(await readCopilotState(options)).toEqual({ version: 1, modelId: MODEL.id, wireApi: "responses" });
+  });
+
+  test("persists completions wire API when requested via pick --wire-api=completions", async () => {
+    const options = await fixture();
+    await expect(runCopilotCLI(["pick", "--wire-api=completions"], {
+      ...options,
+      picker: async (models) => models[0],
+      stdout: () => undefined,
+    })).resolves.toBe(0);
+
+    expect(await readCopilotState(options)).toEqual({ version: 1, modelId: MODEL.id, wireApi: "completions" });
+  });
+
+  test("cancellation in pick is a successful no-op and does not modify state", async () => {
+    const options = await fixture();
+    await writeCopilotState(createCopilotState("previous-model"), options);
+
+    await expect(runCopilotCLI(["pick"], {
+      ...options,
+      picker: async () => undefined,
+      stdout: () => undefined,
+    })).resolves.toBe(0);
+
+    expect((await readCopilotState(options))?.modelId).toBe("previous-model");
+  });
+
+  test("rejects invalid pick arguments and reports usage or wire-api errors", async () => {
+    const options = await fixture();
+    const errors: string[] = [];
+    const stderr = (line: string) => errors.push(line);
+
+    await expect(runCopilotCLI(["pick", "--invalid"], { ...options, stderr })).resolves.toBe(1);
+    await expect(runCopilotCLI(["pick", "--wire-api=invalid"], { ...options, stderr })).resolves.toBe(1);
+    await expect(runCopilotCLI(["pick", "extra", "args"], { ...options, stderr })).resolves.toBe(1);
+
+    expect(errors.some((e) => e.includes("Usage: pi-kit-copilot pick"))).toBe(true);
+    expect(errors.some((e) => e.includes("--wire-api must be responses or completions"))).toBe(true);
+  });
+
+  test("composes picker and launch with launch --pick and forwards post--- arguments", async () => {
+    const options = await fixture();
+    const launchCalls: string[][] = [];
+    const output: string[] = [];
+
+    await expect(runCopilotCLI(["launch", "--pick", "--wire-api=completions", "--", "--allow-all-tools", "task"], {
+      ...options,
+      picker: async (models) => models[0],
+      launch: async (args) => {
+        launchCalls.push(args);
+        return 42;
+      },
+      stdout: (line) => output.push(line),
+    })).resolves.toBe(42);
+
+    expect(output.join("\n")).toContain(`Selected Copilot model: ${MODEL.id}`);
+    expect(await readCopilotState(options)).toEqual({ version: 1, modelId: MODEL.id, wireApi: "completions" });
+    expect(launchCalls).toEqual([["--allow-all-tools", "task"]]);
+  });
+
+  test("cancellation in launch --pick is a successful no-op that does not launch or persist", async () => {
+    const options = await fixture();
+    let launchCalled = false;
+
+    await expect(runCopilotCLI(["launch", "--pick", "--", "hello"], {
+      ...options,
+      picker: async () => undefined,
+      launch: async () => {
+        launchCalled = true;
+        return 0;
+      },
+      stdout: () => undefined,
+    })).resolves.toBe(0);
+
+    expect(launchCalled).toBe(false);
+    expect(await readCopilotState(options)).toBeUndefined();
+  });
+
+  test("ordinary launch -- --pick passes --pick directly to Copilot without invoking the picker", async () => {
+    const options = await fixture();
+    await writeCopilotState(createCopilotState(MODEL.id), options);
+    let pickerCalled = false;
+    const launchCalls: string[][] = [];
+
+    await expect(runCopilotCLI(["launch", "--", "--pick"], {
+      ...options,
+      picker: async () => {
+        pickerCalled = true;
+        return undefined;
+      },
+      launch: async (args) => {
+        launchCalls.push(args);
+        return 0;
+      },
+    })).resolves.toBe(0);
+
+    expect(pickerCalled).toBe(false);
+    expect(launchCalls).toEqual([["--pick"]]);
+  });
+
+  test("rejects --wire-api without --pick and missing -- separator in launch", async () => {
+    const options = await fixture();
+    const errors: string[] = [];
+    const stderr = (line: string) => errors.push(line);
+
+    await expect(runCopilotCLI(["launch", "--wire-api=completions", "--", "hello"], { ...options, stderr })).resolves.toBe(1);
+    await expect(runCopilotCLI(["launch", "--pick", "missing-separator"], { ...options, stderr })).resolves.toBe(1);
+
+    expect(errors.some((e) => e.includes("--wire-api can only be used with --pick"))).toBe(true);
+    expect(errors.some((e) => e.includes("Use -- before Copilot arguments"))).toBe(true);
+  });
 });

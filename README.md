@@ -67,21 +67,35 @@ Codex cannot dynamically register a provider at runtime. According to OpenAI's [
 
 1. Install GitHub Copilot CLI and start CLIProxyAPI.
 2. Set `CLIPROXYAPI_API_KEY`; optionally set `CLIPROXYAPI_BASE_URL` (default: `http://127.0.0.1:8317/v1`).
-3. Run `bun ./bin/pi-kit-copilot.ts models`, then `bun ./bin/pi-kit-copilot.ts use <model-id>`.
-4. Run `bun ./bin/pi-kit-copilot.ts launch -- <Copilot arguments...>`.
+3. Interactively select a model with `bun ./bin/pi-kit-copilot.ts pick`, or launch directly with `bun ./bin/pi-kit-copilot.ts launch --pick -- <Copilot arguments...>`.
+4. For scripts and automation, list models with `models` and persist selections with `use <model-id>`, then launch with `launch -- <Copilot arguments...>`.
 
 The packaged command is `pi-kit-copilot`. Its non-secret selection state is stored at `$XDG_CONFIG_HOME/pi-kit/copilot.json` (or the platform config directory); it contains only the preferred model ID and `responses`/`completions` wire API, never an API key. Set `PI_KIT_COPILOT_STATE_PATH` for an explicit state location.
 
 | Command | Purpose |
 | --- | --- |
+| `pi-kit-copilot pick [--wire-api=responses|completions]` | Interactively searches, selects, and persists a CLIProxyAPI model. |
 | `pi-kit-copilot models` | Dynamically lists the current CLIProxyAPI catalog. No model list is hardcoded. |
-| `pi-kit-copilot use <model-id> [--wire-api=responses|completions]` | Validates a currently discovered model and persists the non-secret selection. |
+| `pi-kit-copilot use <model-id> [--wire-api=responses|completions]` | Validates a currently discovered model and persists the non-secret selection for automation. |
 | `pi-kit-copilot status` | Reports the offline selection and state path without reading or printing credentials. |
-| `pi-kit-copilot launch -- <args...>` | Locates `copilot` on `PATH` or the Windows WinGet package directory, then starts it with BYOK environment variables. |
+| `pi-kit-copilot launch [--pick] [--wire-api=...] [-- <args...>]` | Starts Copilot CLI with BYOK environment variables; optionally prompts for model selection (`--pick`) before launch. |
 | `pi-kit-copilot doctor` | Checks Copilot CLI/version, state, API-key presence, CLIProxyAPI model reachability, and selected-model availability without leaking credentials. |
 | `pi-kit-copilot sync` / `pi-kit-copilot vscode sync` | Discovers the current CLIProxyAPI catalog and synchronizes only pi-kit's user-level VS Code Custom Endpoint provider. It does not restart VS Code. |
 | `pi-kit-copilot vscode status` | Reports the managed VS Code provider state and model count without reading or printing credentials. |
 | `pi-kit-copilot vscode uninstall` | Removes only the unique pi-kit-managed VS Code Custom Endpoint provider; it is idempotent when absent. |
+
+### Interactive model picker & launch
+
+`pi-kit-copilot pick` opens a dependency-free interactive terminal picker to search and select models from the live CLIProxyAPI catalog:
+- **Search & ranking**: live case-insensitive fuzzy and subsequence matching across display name, model ID, and owner, with deterministic ranking and tie-breaking.
+- **Navigation & controls**: arrow keys (↑/↓), PageUp/PageDown, Home/End for scrolling through visible models; Enter confirms; Escape or Ctrl+C cancels.
+- **Cancellation**: cancelling the picker is a safe no-op (exit 0) that leaves previous state untouched and does not launch Copilot.
+- **Combined launch**: `pi-kit-copilot launch --pick [--wire-api=responses|completions] -- <args...>` prompts for a model first, saves the selection, and immediately launches Copilot with the forwarded arguments. Ordinary `launch -- <args...>` remains deterministic and non-interactive. To pass `--pick` directly to Copilot CLI itself, place it after the separator: `pi-kit-copilot launch -- --pick`.
+- **Automation fallback**: non-TTY environments cleanly refuse `pick` with an actionable message. Use `models` and `use <model-id>` for CI and non-interactive scripting.
+
+### Why native Copilot `/model` shows GitHub subscription models
+
+GitHub Copilot CLI connects to third-party endpoints only via process-level BYOK environment variables (`COPILOT_PROVIDER_*`). Its built-in `/model` slash command is hardcoded to GitHub's subscription catalog and cannot discover or switch to external proxy models at runtime. pi-kit provides a pre-launch picker so you can select and launch any CLIProxyAPI model before Copilot starts.
 
 ### VS Code Custom Endpoint safety
 

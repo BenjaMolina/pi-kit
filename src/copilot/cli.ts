@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { discoverCLIProxyModels } from "../cliproxyapi/discovery";
-import { resolveCLIProxyBaseUrl } from "../cliproxyapi/models";
+import { resolveCLIProxyBaseUrl, type CLIProxyModel } from "../cliproxyapi/models";
 import {
   createCopilotLaunchPlan,
   launchCopilot,
@@ -9,6 +9,7 @@ import {
   runCopilotVersion,
   type CopilotLauncherOptions,
 } from "./launcher";
+import { selectCopilotModel, type CopilotPickerOptions, type CopilotPickerTerminal } from "./picker";
 import { createCopilotState, readCopilotState, resolveCopilotStatePath, writeCopilotState } from "./state";
 import { syncVSCodeCLIProxyAPI, uninstallVSCodeCLIProxyAPI, vscodeConfigStatus } from "./vscode";
 
@@ -16,6 +17,8 @@ export type CopilotCLIOptions = CopilotLauncherOptions & {
   stdout?: (line: string) => void;
   stderr?: (line: string) => void;
   launch?: (args: string[], options: CopilotLauncherOptions) => Promise<number>;
+  picker?: (models: CLIProxyModel[], options: CopilotPickerOptions) => Promise<CLIProxyModel | undefined>;
+  terminal?: CopilotPickerTerminal;
 };
 
 const HELP = [
@@ -23,9 +26,11 @@ const HELP = [
   "",
   "Commands:",
   "  models                  List models currently discovered from CLIProxyAPI.",
+  "  pick [--wire-api=...]   Interactively search, select, and persist a preferred model.",
   "  use <model-id>          Validate and persist the preferred dynamic model selection.",
   "  status                  Report the local non-secret model selection.",
-  "  launch [-- <args...>]   Start Copilot CLI with BYOK environment variables.",
+  "  launch [--pick] [--wire-api=...] [-- <args...>]",
+  "                          Start Copilot CLI with BYOK environment variables.",
   "  doctor                  Check Copilot CLI, state, key, model reachability, and selection.",
   "  sync                    Synchronize the VS Code user Custom Endpoint catalog.",
   "  vscode sync             Synchronize the VS Code user Custom Endpoint catalog.",
@@ -53,6 +58,31 @@ export async function runCopilotCLI(args: string[], options: CopilotCLIOptions =
       }
       return 0;
     }
+    if (command === "pick") {
+      let wireApi: "responses" | "completions" = "responses";
+      if (args.length === 2) {
+        if (!args[1].startsWith("--wire-api=")) {
+          throw new Error("Usage: pi-kit-copilot pick [--wire-api=responses|completions]");
+        }
+        const api = args[1].slice("--wire-api=".length);
+        if (api !== "responses" && api !== "completions") {
+          throw new Error("--wire-api must be responses or completions");
+        }
+        wireApi = api;
+      } else if (args.length > 2) {
+        throw new Error("Usage: pi-kit-copilot pick [--wire-api=responses|completions]");
+      }
+
+      const models = await listCopilotModels(options);
+      const pickerFn = options.picker ?? selectCopilotModel;
+      const selected = await pickerFn(models, { terminal: options.terminal });
+      if (!selected) return 0;
+
+      const path = await writeCopilotState(createCopilotState(selected.id, wireApi), options);
+      stdout(`Selected Copilot model: ${selected.id}`);
+      stdout(`State: ${path}`);
+      return 0;
+    }
     if (command === "use") {
       const modelId = args[1];
       if (!modelId || args.length > 3 || (args.length === 3 && !args[2].startsWith("--wire-api="))) {
@@ -77,9 +107,48 @@ export async function runCopilotCLI(args: string[], options: CopilotCLIOptions =
     }
     if (command === "launch") {
       const separator = args.indexOf("--");
-      if (separator !== -1 && separator !== 1) throw new Error("Usage: pi-kit-copilot launch [-- <copilot args...>]");
-      const launchArgs = separator === -1 ? args.slice(1) : args.slice(2);
-      if (separator === -1 && launchArgs.length > 0) throw new Error("Use -- before Copilot arguments");
+      const optionsBefore = separator === -1 ? args.slice(1) : args.slice(1, separator);
+      const launchArgs = separator === -1 ? [] : args.slice(separator + 1);
+
+      let pick = false;
+      let wireApi: "responses" | "completions" = "responses";
+
+      for (const opt of optionsBefore) {
+        if (opt === "--pick") {
+          pick = true;
+        } else if (opt.startsWith("--wire-api=")) {
+          const api = opt.slice("--wire-api=".length);
+          if (api !== "responses" && api !== "completions") {
+            throw new Error("--wire-api must be responses or completions");
+          }
+          wireApi = api;
+        } else {
+          if (separator === -1) {
+            throw new Error("Use -- before Copilot arguments");
+          }
+          throw new Error("Usage: pi-kit-copilot launch [--pick] [--wire-api=responses|completions] [-- <copilot args...>]");
+        }
+      }
+
+      if (!pick && optionsBefore.some((opt) => opt.startsWith("--wire-api="))) {
+        throw new Error("--wire-api can only be used with --pick");
+      }
+
+      if (separator === -1 && !pick && args.length > 1) {
+        throw new Error("Use -- before Copilot arguments");
+      }
+
+      if (pick) {
+        const models = await listCopilotModels(options);
+        const pickerFn = options.picker ?? selectCopilotModel;
+        const selected = await pickerFn(models, { terminal: options.terminal });
+        if (!selected) return 0;
+
+        const path = await writeCopilotState(createCopilotState(selected.id, wireApi), options);
+        stdout(`Selected Copilot model: ${selected.id}`);
+        stdout(`State: ${path}`);
+      }
+
       return await (options.launch ?? launchCopilot)(launchArgs, options);
     }
     if (command === "sync") {
