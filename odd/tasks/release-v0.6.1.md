@@ -16,13 +16,13 @@ Publish `@benjamolina/pi-kit@0.6.1` delivering automated VS Code SecretStorage i
 
 ## Tasks
 
-- [x] Bump manifests to `0.6.1` without changing dependency resolution.
-- [x] Run release-manifest validation, full tests, packed-consumer verification, and `npm pack --dry-run`.
-- [ ] Merge the release bump to `main` through a green PR linked to approved issue #57.
-- [ ] Create immutable annotated tag `v0.6.1` from the freshly fetched `origin/main` commit.
-- [ ] Upload precompiled Linux amd64 `.so` assets to GitHub Release `v0.6.1`.
-- [ ] Publish through `release-npm.yml` using trusted OIDC/provenance and verify npm.
-- [ ] Align Bun global package to `@benjamolina/pi-kit@0.6.1`.
+- [x] Bump manifests to `0.6.1` without changing dependency resolution. Evidence: `package.json` and `package-lock.json` updated cleanly.
+- [x] Run release-manifest validation, full tests, packed-consumer verification, and `npm pack --dry-run`. Evidence: 78 tests passed across 13 files, manifest validated v0.6.1, packed consumers resolved cleanly.
+- [x] Merge the release bump to `main` through a green PR linked to approved issue #57. Evidence: PR #58 merged (`e5347c8`).
+- [x] Create immutable annotated tag `v0.6.1` from the freshly fetched `origin/main` commit. Evidence: tag `v0.6.1` pushed and verified (`e5347c8b9f9...`).
+- [x] Upload precompiled Linux amd64 `.so` assets to GitHub Release `v0.6.1`. Evidence: release assets uploaded (`1fab1d7f...` and `85686e7b...`).
+- [x] Publish through `release-npm.yml` using trusted OIDC/provenance and verify npm. Evidence: `@benjamolina/pi-kit@0.6.1` published and verified live on npm (`npm view @benjamolina/pi-kit version` -> `0.6.1`).
+- [x] Align Bun global package to `@benjamolina/pi-kit@0.6.1`. Evidence: `pi-kit-copilot doctor` reports `VS Code secret: configured`.
 
 ## Acceptance criteria
 
