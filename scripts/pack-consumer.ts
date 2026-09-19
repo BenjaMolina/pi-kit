@@ -46,6 +46,7 @@ const REQUIRED_FILES = [
   "extensions/cliproxyapi-dynamic-provider.ts",
   "opencode/cliproxyapi.ts",
   "bin/pi-kit-codex.ts",
+  "bin/pi-kit-copilot.ts",
   "src/codex/cli.ts",
   "src/codex/config.ts",
   "src/codex/doctor.ts",
@@ -53,6 +54,9 @@ const REQUIRED_FILES = [
   "src/cliproxyapi/discovery.ts",
   "src/cliproxyapi/models.ts",
   "src/cliproxyapi/opencode.ts",
+  "src/copilot/cli.ts",
+  "src/copilot/launcher.ts",
+  "src/copilot/state.ts",
   ...REQUIRED_NATIVE_PLUGIN_FILES,
 ];
 const GENERATED_NATIVE_PLUGIN_ARTIFACT = /^profiles\/cliproxyapi\/plugins\/[^/]+\/[^/]+\.(?:so|h)$/;
@@ -247,6 +251,27 @@ async function verifyCodexConsumer(consumer: string, archivePath: string, regist
     "Codex consumer did not resolve its runtime dependency from the isolated registry mock");
 }
 
+async function verifyCopilotConsumer(consumer: string, archivePath: string, registry: RegistryMock): Promise<void> {
+  const home = join(consumer, "home");
+  mkdirSync(home, { recursive: true });
+  writeFileSync(join(consumer, "package.json"), JSON.stringify({ private: true, name: "copilot-pack-consumer" }));
+  const environment = isolatedEnvironment(home, registry.url, {
+    CLIPROXYAPI_API_KEY: "pack-consumer-fake-key",
+    CLIPROXYAPI_BASE_URL: `${registry.url}v1`,
+  });
+
+  await runNpmCommand(["install", "--ignore-scripts", "--legacy-peer-deps", archivePath], consumer, environment);
+  const bin = join(consumer, "node_modules", ".bin", process.platform === "win32" ? "pi-kit-copilot.cmd" : "pi-kit-copilot");
+  assert(existsSync(bin), "npm did not expose the pi-kit-copilot package bin");
+  const help = await runCommand([bin, "--help"], consumer, environment);
+  assert(help.includes("Usage: pi-kit-copilot"), `packaged pi-kit-copilot --help did not print usage:\n${help}`);
+  const models = await runCommand([bin, "models"], consumer, environment);
+  assert(models.includes("mock-cli-proxy-model"), `packaged pi-kit-copilot models did not list the mock model:\n${models}`);
+  await runCommand([bin, "use", "mock-cli-proxy-model"], consumer, environment);
+  assert(existsSync(join(home, ".config", "pi-kit", "copilot.json")), "packaged pi-kit-copilot use did not create non-secret state");
+  assert(registry.requests.some((request) => request.path === "/v1/models"), "Copilot consumer did not query the CLIProxyAPI model catalog");
+}
+
 async function verifyOpenCodeConsumer(consumer: string, registry: RegistryMock): Promise<void> {
   const home = join(consumer, "home");
   const configDir = join(home, ".config", "opencode");
@@ -273,9 +298,11 @@ async function main(): Promise<void> {
     const piConsumer = join(temporary, "pi-consumer");
     const openCodeConsumer = join(temporary, "opencode-consumer");
     const codexConsumer = join(temporary, "codex-consumer");
+    const copilotConsumer = join(temporary, "copilot-consumer");
     mkdirSync(piConsumer);
     mkdirSync(openCodeConsumer);
     mkdirSync(codexConsumer);
+    mkdirSync(copilotConsumer);
 
     const piRegistry = createRegistryMock(archivePath);
     try {
@@ -298,8 +325,15 @@ async function main(): Promise<void> {
       codexRegistry.stop();
     }
 
+    const copilotRegistry = createRegistryMock(archivePath, tomlArchivePath);
+    try {
+      await verifyCopilotConsumer(copilotConsumer, archivePath, copilotRegistry);
+    } finally {
+      copilotRegistry.stop();
+    }
+
     console.log(`Packed ${archive.filename}: ${archive.size} bytes compressed, ${archive.unpackedSize} bytes unpacked`);
-    console.log(`Clean Pi ${PI_VERSION}, OpenCode ${OPENCODE_VERSION}, and Codex consumers resolved ${PACKAGE_NAME}@${PACKAGE_VERSION}`);
+    console.log(`Clean Pi ${PI_VERSION}, OpenCode ${OPENCODE_VERSION}, Codex, and Copilot consumers resolved ${PACKAGE_NAME}@${PACKAGE_VERSION}`);
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }

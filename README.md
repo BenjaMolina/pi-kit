@@ -59,6 +59,30 @@ Run `pi-kit-codex doctor` before and after installation. A healthy result report
 
 Codex cannot dynamically register a provider at runtime. According to OpenAI's [Codex configuration reference](https://developers.openai.com/codex/config-reference/), `model_catalog_json` is loaded at startup; catalog synchronization is outside this MVP. Restart or reload Codex after `install`, either `use` command, or after changing proxy-side model availability. Use `doctor` to check the current proxy's `/models` endpoint separately. `use cliproxyapi` intentionally replaces root model and provider selections; use `install` instead when you only want to register the managed provider without changing an existing selection.
 
+## Copilot CLI + CLIProxyAPI: dynamic BYOK launcher
+
+> **Availability:** Copilot CLI support is present in this repository and will ship in the next package release.
+
+`pi-kit-copilot` dynamically discovers the models exposed by CLIProxyAPI and starts the GitHub Copilot CLI through its official OpenAI-compatible BYOK environment variables. It preserves the exact CLIProxyAPI model ID as the wire model and selects a conservative Copilot catalog ID by family (Claude, Gemini, or GPT) when Copilot's internal catalog needs one.
+
+1. Install GitHub Copilot CLI and start CLIProxyAPI.
+2. Set `CLIPROXYAPI_API_KEY`; optionally set `CLIPROXYAPI_BASE_URL` (default: `http://127.0.0.1:8317/v1`).
+3. Run `bun ./bin/pi-kit-copilot.ts models`, then `bun ./bin/pi-kit-copilot.ts use <model-id>`.
+4. Run `bun ./bin/pi-kit-copilot.ts launch -- <Copilot arguments...>`.
+
+The packaged command is `pi-kit-copilot`. Its non-secret selection state is stored at `$XDG_CONFIG_HOME/pi-kit/copilot.json` (or the platform config directory); it contains only the preferred model ID and `responses`/`completions` wire API, never an API key. Set `PI_KIT_COPILOT_STATE_PATH` for an explicit state location.
+
+| Command | Purpose |
+| --- | --- |
+| `pi-kit-copilot models` | Dynamically lists the current CLIProxyAPI catalog. No model list is hardcoded. |
+| `pi-kit-copilot use <model-id> [--wire-api=responses|completions]` | Validates a currently discovered model and persists the non-secret selection. |
+| `pi-kit-copilot status` | Reports the offline selection and state path without reading or printing credentials. |
+| `pi-kit-copilot launch -- <args...>` | Locates `copilot` on `PATH` or the Windows WinGet package directory, then starts it with BYOK environment variables. |
+| `pi-kit-copilot doctor` | Checks Copilot CLI/version, state, API-key presence, CLIProxyAPI model reachability, and selected-model availability without leaking credentials. |
+| `pi-kit-copilot sync` / `vscode` | Reserved for the VS Code Custom Endpoint follow-up. They do not mutate VS Code yet. |
+
+`launch` derives `COPILOT_PROVIDER_BEARER_TOKEN` from the process-local `CLIPROXYAPI_API_KEY`; it does not persist or print it. For Copilot CLI 1.0.86, it sets `COPILOT_PROVIDER_TYPE=openai`, the resolved CLIProxyAPI base URL, `COPILOT_PROVIDER_WIRE_API` (default `responses`), the exact `COPILOT_PROVIDER_WIRE_MODEL`, provider model/catalog IDs, `COPILOT_PROVIDER_MAX_OUTPUT_TOKENS` from discovered output metadata, and `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` as the remaining context budget after reserving output tokens. Run `doctor` before launching when connectivity is uncertain.
+
 ## Included resources
 
 ### CLIProxyAPI local Docker profile

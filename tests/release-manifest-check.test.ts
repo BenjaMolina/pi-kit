@@ -7,7 +7,10 @@ const manifest = {
   private: false,
   main: "./opencode/cliproxyapi.ts",
   exports: "./opencode/cliproxyapi.ts",
-  bin: { "pi-kit-codex": "./bin/pi-kit-codex.ts" },
+  bin: {
+    "pi-kit-codex": "./bin/pi-kit-codex.ts",
+    "pi-kit-copilot": "./bin/pi-kit-copilot.ts",
+  },
   publishConfig: { access: "public" },
   repository: { type: "git", url: "git+https://github.com/BenjaMolina/pi-kit.git" },
 };
@@ -25,16 +28,19 @@ describe("release manifest contract", () => {
     )).toThrow("exports must target the external OpenCode plugin");
   });
 
-  test("rejects a missing, additional, or incorrect Codex bin target", () => {
+  test("requires exactly the Codex and Copilot bin targets", () => {
     for (const bin of [
       {},
-      { "pi-kit-codex": "./bin/other.ts" },
-      { "pi-kit-codex": "./bin/pi-kit-codex.ts", another: "./bin/another.ts" },
+      { "pi-kit-codex": "./bin/pi-kit-codex.ts" },
+      { "pi-kit-copilot": "./bin/pi-kit-copilot.ts" },
+      { ...manifest.bin, "pi-kit-codex": "./bin/other.ts" },
+      { ...manifest.bin, "pi-kit-copilot": "./bin/other.ts" },
+      { ...manifest.bin, another: "./bin/another.ts" },
     ]) {
       expect(() => assertReleaseManifest(
         { ...manifest, bin },
         { packages: { "": manifest } },
-      )).toThrow("bin must contain exactly pi-kit-codex targeting ./bin/pi-kit-codex.ts");
+      )).toThrow("bin must contain exactly pi-kit-codex and pi-kit-copilot with their required targets");
     }
   });
 });

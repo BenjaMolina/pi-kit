@@ -9,6 +9,7 @@ const packageFiles = [
   "extensions/cliproxyapi-dynamic-provider.ts",
   "opencode/cliproxyapi.ts",
   "bin/pi-kit-codex.ts",
+  "bin/pi-kit-copilot.ts",
   "src/codex/cli.ts",
   "src/codex/config.ts",
   "src/codex/doctor.ts",
@@ -16,6 +17,9 @@ const packageFiles = [
   "src/cliproxyapi/discovery.ts",
   "src/cliproxyapi/models.ts",
   "src/cliproxyapi/opencode.ts",
+  "src/copilot/cli.ts",
+  "src/copilot/launcher.ts",
+  "src/copilot/state.ts",
   "profiles/cliproxyapi/plugins/codex-catalog-display-name/README.md",
   "profiles/cliproxyapi/plugins/codex-catalog-display-name/build-linux-amd64.ps1",
   "profiles/cliproxyapi/plugins/codex-catalog-display-name/catalog.go",
@@ -51,7 +55,9 @@ describe("Codex packed archive contract", () => {
 
     for (const missing of [
       "bin/pi-kit-codex.ts",
+      "bin/pi-kit-copilot.ts",
       "src/codex/cli.ts",
+      "src/copilot/cli.ts",
       "src/codex/config.ts",
       "src/codex/doctor.ts",
       "profiles/cliproxyapi/plugins/codex-catalog-display-name/README.md",
