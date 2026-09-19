@@ -78,7 +78,23 @@ describe("pi-kit-codex CLI", () => {
     const userConfig = 'model = "user-model"\nmodel_provider = "user-provider"\n';
     await writeFile(join(userHome, "config.toml"), userConfig);
     await expect(runCodexCLI(["use", "cliproxyapi"], { ...options, env: { ...options.env, CODEX_HOME: userHome } })).resolves.toBe(0);
-    expect(await readFile(join(userHome, "config.toml"), "utf8")).toStartWith(userConfig);
+    expect(await readFile(join(userHome, "config.toml"), "utf8")).toContain('model_provider = "cliproxyapi"');
+  });
+
+  test("uses OpenAI for an unmanaged CLIProxyAPI selection", async () => {
+    const home = await mkdtemp(join(tmpdir(), "pi-kit-codex-cli-"));
+    const path = join(home, "config.toml");
+    const original = 'model = "proxy-model"\nmodel_provider = "cliproxyapi"\nmodel_reasoning_effort = "high"\n';
+    await writeFile(path, original);
+    const output: string[] = [];
+    const options = {
+      env: { CODEX_HOME: home, CLIPROXYAPI_BASE_URL: "http://proxy.test/v1", CLIPROXYAPI_API_KEY: SECRET },
+      stdout: (line: string) => output.push(line),
+    };
+
+    await expect(runCodexCLI(["use", "openai"], options)).resolves.toBe(0);
+    expect(await readFile(path, "utf8")).toBe('model_reasoning_effort = "high"\n');
+    expect(output).toContain(`Switched to OpenAI default: ${path}`);
   });
 
   test("switches an interleaved legacy provider block without changing unrelated sections", async () => {
