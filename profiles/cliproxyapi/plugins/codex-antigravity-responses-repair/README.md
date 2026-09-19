@@ -1,7 +1,7 @@
 # Codex Antigravity Responses repair plugin
 
 A standalone CLIProxyAPI ABI v1 / RPC schema v6 Go shared-library plugin. It
-repairs the translated Codex system identity that Antigravity Gemini rejects,
+repairs the translated Codex system identity that Antigravity rejects,
 without modifying the CLIProxyAPI fork.
 
 It deliberately declares **only** `request_normalizer` and serves only:
@@ -21,7 +21,6 @@ The normalizer changes a request only when all of these are true:
 
 - `FromFormat` equals `openai-response` case-insensitively.
 - `ToFormat` equals `antigravity` case-insensitively.
-- `Model` contains `gemini` case-insensitively.
 - The request body is one valid JSON object with
   `request.systemInstruction.parts[*].text` containing the exact fragment
   `You are Codex,`.
@@ -42,10 +41,10 @@ unknown fields and numeric tokens outside the rewritten system text.
 Docker is required. From this directory:
 
 ```powershell
-.\build-linux-amd64.ps1 -Version 1.0.0
+.\build-linux-amd64.ps1 -Version 1.0.1
 ```
 
-This creates `codex-antigravity-responses-repair-linux-amd64-v1.0.0.so`, prints
+This creates `codex-antigravity-responses-repair-linux-amd64-v1.0.1.so`, prints
 its SHA-256, and deletes the c-shared generated `.h` header. The script mounts
 only this source directory and does not read, write, start, or restart
 CLIProxyAPI.
@@ -60,12 +59,12 @@ plugin mount; it does not read configuration, `.env`, auth, or secrets.
 ```powershell
 # Standard sibling checkout layout
 .\install.ps1 `
-  -Artifact .\codex-antigravity-responses-repair-linux-amd64-v1.0.0.so `
+  -Artifact .\codex-antigravity-responses-repair-linux-amd64-v1.0.1.so `
   -Sha256 '<build-output-sha256>'
 
 # Non-standard checkout or custom CLI_PROXY_PLUGIN_PATH mount
 .\install.ps1 `
-  -Artifact .\codex-antigravity-responses-repair-linux-amd64-v1.0.0.so `
+  -Artifact .\codex-antigravity-responses-repair-linux-amd64-v1.0.1.so `
   -Sha256 '<build-output-sha256>' `
   -Target 'C:\path\to\CLIProxyAPI\plugins'
 ```
@@ -84,9 +83,9 @@ is visible under the Compose-mounted `plugins` directory. Do **not** paste
 secrets into plugin configuration; this plugin has no settings.
 
 After the next operator-approved CLIProxyAPI restart/reload, send a non-secret
-Codex OpenAI Responses request targeting a Gemini Antigravity model. Confirm the
+Codex OpenAI Responses request targeting an Antigravity model (Gemini or Claude). Confirm the
 request succeeds and that only translated system identity text is repaired.
-Also verify a Codex GPT request, a non-Gemini Antigravity request, and a request
+Also verify a Codex GPT request, a non-Antigravity request, and a request
 whose user content alone contains `You are Codex,` remain unchanged. Inspect the
 service's normal plugin-load status/logs without copying request bodies or
 authorization headers.
@@ -106,6 +105,6 @@ go test ./...
 ```
 
 The focused tests cover registration, reconfiguration, schema guards, both known
-Codex identity variants, case-insensitive target matching, non-Gemini and wrong
-format guards, user-content-only, malformed and missing structures, multiple
+Codex identity variants, case-insensitive target matching, Claude on Antigravity,
+wrong format guards, user-content-only, malformed and missing structures, multiple
 system parts, no-match behavior, and idempotence.
