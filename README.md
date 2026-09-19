@@ -31,6 +31,9 @@ According to OpenAI's [Codex configuration documentation](https://developers.ope
 | `pi-kit-codex use cliproxyapi` | Actively replaces root `model` and `model_provider` selections with pi-kit's managed CLIProxyAPI selection, preserving the current model name when present. |
 | `pi-kit-codex install` | Adds the managed CLIProxyAPI provider configuration and, when the user has no model selection, configures the static default `gpt-5.5`, chosen after development and interoperability testing. It does not validate that model against the current proxy. |
 | `pi-kit-codex uninstall` | Removes only the configuration blocks managed by `pi-kit-codex`. |
+| `pi-kit-codex plugin list` | Reports available standalone CLIProxyAPI plugins, installation status, and SHA-256 integrity. |
+| `pi-kit-codex plugin install <id|all>` | Installs verified plugin `.so` binaries with checksum validation (hybrid download from GitHub release or local Docker `--build`). |
+| `pi-kit-codex plugin uninstall <id|all>` | Removes installed standalone CLIProxyAPI plugin binaries. |
 | `pi-kit-codex --help` | Shows the supported commands. |
 
 ### Codex prerequisites and safety
