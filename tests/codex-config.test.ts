@@ -73,24 +73,99 @@ describe("Codex CLIProxyAPI configuration", () => {
     expect(repeated.changed).toBe(false);
   });
 
-  test("reactivates the managed selection without overwriting a user selection", async () => {
+  test("actively adopts an unmanaged selection while preserving unrelated configuration", async () => {
     const home = await fixtureHome();
     const path = join(home, "config.toml");
+    const original = [
+      'model = "user-model"',
+      'model_provider = "user-provider"',
+      'model_reasoning_effort = "high"',
+      "[hooks.state]",
+      'last_checked = "sanitized"',
+      "[tui]",
+      'theme = "default"',
+      "",
+    ].join("\n");
+    await writeFile(path, original);
 
-    await installCodexCLIProxyAPI(options(home));
-    await deactivateCodexCLIProxyAPI(options(home));
     const activated = await activateCodexCLIProxyAPI(options(home));
-    expect(activated.changed).toBe(true);
-    expect(await readFile(path, "utf8")).toContain('model_provider = "cliproxyapi"');
+    const content = await readFile(path, "utf8");
 
-    const userHome = await fixtureHome();
-    const userPath = join(userHome, "config.toml");
-    const userConfig = 'model = "user-model"\nmodel_provider = "user-provider"\n';
-    await writeFile(userPath, userConfig);
-    const userActivated = await activateCodexCLIProxyAPI(options(userHome));
+    expect(activated).toMatchObject({ changed: true, managedRoot: true, managedProvider: true });
+    expect(content).toStartWith([
+      "# >>> pi-kit Codex CLIProxyAPI v1 root >>>",
+      'model = "user-model"',
+      'model_provider = "cliproxyapi"',
+      "# <<< pi-kit Codex CLIProxyAPI v1 root <<<",
+      'model_reasoning_effort = "high"',
+      "[hooks.state]",
+      'last_checked = "sanitized"',
+      "[tui]",
+      'theme = "default"',
+      "",
+    ].join("\n"));
+    expect(await getCodexCLIProxyAPIStatus(options(home))).toMatchObject({ selection: "managed CLIProxyAPI" });
+    expect(await activateCodexCLIProxyAPI(options(home))).toMatchObject({ changed: false, managedRoot: true, managedProvider: true });
+  });
 
-    expect(userActivated.managedRoot).toBe(false);
-    expect(await readFile(userPath, "utf8")).toStartWith(userConfig);
+  test("actively returns unmanaged CLIProxyAPI selections to the OpenAI default", async () => {
+    const home = await fixtureHome();
+    const path = join(home, "config.toml");
+    const original = [
+      'model = "proxy-model"',
+      'model_provider = "cliproxyapi"',
+      'model_reasoning_effort = "high"',
+      "[hooks.state]",
+      'last_checked = "sanitized"',
+      "[tui]",
+      'theme = "default"',
+      "",
+    ].join("\n");
+    const expected = [
+      'model_reasoning_effort = "high"',
+      "[hooks.state]",
+      'last_checked = "sanitized"',
+      "[tui]",
+      'theme = "default"',
+      "",
+    ].join("\n");
+    await writeFile(path, original);
+
+    expect(await deactivateCodexCLIProxyAPI(options(home))).toMatchObject({ changed: true, managedRoot: false, managedProvider: false });
+    expect(await readFile(path, "utf8")).toBe(expected);
+    expect(await getCodexCLIProxyAPIStatus(options(home))).toMatchObject({ selection: "OpenAI default" });
+  });
+
+  test("accepts a user-updated managed model when deactivating", async () => {
+    const home = await fixtureHome();
+    const path = join(home, "config.toml");
+    await installCodexCLIProxyAPI(options(home));
+    const original = await readFile(path, "utf8");
+    const changedModel = original.replace('model = "gpt-5.5"', 'model = "gemini-3.8-flash-high"');
+    await writeFile(path, changedModel);
+
+    expect(await deactivateCodexCLIProxyAPI(options(home))).toMatchObject({ changed: true, managedRoot: false });
+    expect(await readFile(path, "utf8")).toContain("Codex CLIProxyAPI v1 provider");
+  });
+
+  test("actively switches any non-default root selection to the OpenAI default", async () => {
+    const home = await fixtureHome();
+    const path = join(home, "config.toml");
+    await writeFile(path, 'model = "user-model"\nmodel_provider = "user-provider"\n');
+
+    expect(await deactivateCodexCLIProxyAPI(options(home))).toMatchObject({ changed: true, managedRoot: false, managedProvider: false });
+    expect(await readFile(path, "utf8")).toBe("");
+    expect(await getCodexCLIProxyAPIStatus(options(home))).toMatchObject({ selection: "OpenAI default" });
+  });
+
+  test("reports unmanaged CLIProxyAPI and OpenAI default selections", async () => {
+    const home = await fixtureHome();
+    const path = join(home, "config.toml");
+    await writeFile(path, 'model_provider = "cliproxyapi"\n');
+
+    expect(await getCodexCLIProxyAPIStatus(options(home))).toMatchObject({ selection: "CLIProxyAPI" });
+    await writeFile(path, 'model_provider = "openai"\n');
+    expect(await getCodexCLIProxyAPIStatus(options(home))).toMatchObject({ selection: "OpenAI default" });
   });
 
   test("reports managed selection and provider registration without reading credentials", async () => {

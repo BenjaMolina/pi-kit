@@ -77,7 +77,16 @@ Add a safe, reversible command-line switch between the user's native OpenAI/Chat
   - Reproduce a valid trailing `[tui]` table after the managed provider end marker.
   - Remove the assumption that the managed provider marker must terminate the document while keeping unique, ordered markers and exact provider semantics.
   - Preserve trailing content byte-for-byte through status, switching, install, and uninstall; uninstall removes only the managed payload and markers.
-  - Checks: focused tests, full tests, packed consumers, and `git diff --check`.
+  - Checks: focused tests, full tests, packed consumers, live read-only status, and `git diff --check`.
+
+- [x] **CPS-7 — Active provider switching for existing and unmanaged selections**
+  - Route: delegated writer; architectural fix for switch command usability.
+  - Separate passive `install` from active `use`: `use cliproxyapi` must actively switch to CLIProxyAPI by adopting or replacing existing root provider selections into the managed root block.
+  - Relax `assertRootBlock` to accept any user-selected model name within the managed root block, requiring only `model_provider = "cliproxyapi"`.
+  - `use openai` must actively switch to OpenAI by removing `blocks.root` AND any unmanaged top-level `model_provider = "cliproxyapi"` or proxy model lines, leaving Codex in clean native default.
+  - `status` reports CLIProxyAPI whenever `model_provider = "cliproxyapi"`, managed or unmanaged, and OpenAI default when neither is set.
+  - Preserve all unrelated configuration (reasoning effort, hooks, tui, other sections) byte-for-byte.
+  - Checks: focused tests, full tests, packed consumers, live status and live switch verification, and `git diff --check`.
 
 ## Acceptance criteria
 
@@ -134,6 +143,19 @@ Add a safe, reversible command-line switch between the user's native OpenAI/Chat
 - CPS-6 independent verification: no critical, high, medium, or low findings; 38 full tests passed, packed consumers passed, and `git diff --check` passed.
 - Native risk assessment remained schema-incompatible and unavailable; policy treated CPS-6 as high risk and required the completed independent verification.
 
+- CPS-6 shipped as v0.5.5 and passed 3 consecutive read-only status checks on the real config.
+- A critical UX/architectural flaw was discovered: `use` commands reused passive `install` checks (`hasUserModelSelection`), meaning `use cliproxyapi` refused to activate when a model was already selected, and `use openai` refused to touch unmanaged `model_provider = "cliproxyapi"` lines.
+- Branch `fix/codex-active-provider-switch` created for CPS-7.
+- CPS-7 RED: `bun test tests/codex-config.test.ts tests/codex-cli.test.ts` failed as intended after behavior tests were added: active activation retained an unmanaged root selection, unmanaged CLIProxyAPI deactivation was unchanged, and a user-updated managed model was rejected (15 passing, 5 failing, 89 expectations).
+- CPS-7 GREEN: active activation now adopts root `model`/`model_provider` selections into the managed root block, preserves unrelated root keys and sections, and registers the provider; active deactivation removes the managed root or unmanaged CLIProxyAPI selection plus root model while retaining unrelated bytes and the managed provider registration.
+- CPS-7 root validation parses the marked block and accepts any string model when `model_provider = "cliproxyapi"`; it still rejects malformed markers and non-proxy managed roots.
+- CPS-7 status distinguishes managed CLIProxyAPI, unmanaged CLIProxyAPI, OpenAI default, and other user selections. CLI output no longer reports a refusal for active `use cliproxyapi`.
+- CPS-7 focused verification: `bun test tests/codex-config.test.ts tests/codex-cli.test.ts` passed (22 tests, 0 failures, 102 expectations).
+- CPS-7 full verification: `bun test` passed (43 tests, 0 failures, 150 expectations).
+- CPS-7 packed-consumer verification: `bun run test:pack` passed; isolated Pi, OpenCode, and Codex consumers resolved the packed archive.
+- CPS-7 diff verification: `git diff --check` passed.
+- CPS-7 scope: no live Codex configuration, authentication or credential storage, versions, or release metadata were read or changed.
+
 ## Next step
 
-Commit CPS-6, merge its issue-linked PR after CI, release and install the next patch, then require repeated live read-only status checks before completing the feature.
+Review CPS-7 changes, then decide whether to commit, release, and perform user-authorized live switch verification.

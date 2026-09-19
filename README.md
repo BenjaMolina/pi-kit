@@ -27,8 +27,8 @@ According to OpenAI's [Codex configuration documentation](https://developers.ope
 | --- | --- |
 | `pi-kit-codex doctor` | Read-only connectivity and configuration check. It requests `/models`; it does not send billable inference. |
 | `pi-kit-codex status` | Offline-only report of the configured selection and CLIProxyAPI provider registration. It does not run Codex, contact the proxy, or read credentials. |
-| `pi-kit-codex use openai` | Removes only pi-kit's verified managed CLIProxyAPI root selection, retaining the managed provider registration and existing ChatGPT login. |
-| `pi-kit-codex use cliproxyapi` | Activates pi-kit's managed CLIProxyAPI selection when no explicit user-owned `model` or `model_provider` selection exists; it never overwrites a user selection. |
+| `pi-kit-codex use openai` | Actively removes the CLIProxyAPI root selection and root model so Codex returns to its native OpenAI default, while retaining the managed provider registration and existing ChatGPT login. |
+| `pi-kit-codex use cliproxyapi` | Actively replaces root `model` and `model_provider` selections with pi-kit's managed CLIProxyAPI selection, preserving the current model name when present. |
 | `pi-kit-codex install` | Adds the managed CLIProxyAPI provider configuration and, when the user has no model selection, configures the static default `gpt-5.5`, chosen after development and interoperability testing. It does not validate that model against the current proxy. |
 | `pi-kit-codex uninstall` | Removes only the configuration blocks managed by `pi-kit-codex`. |
 | `pi-kit-codex --help` | Shows the supported commands. |
@@ -40,7 +40,7 @@ According to OpenAI's [Codex configuration documentation](https://developers.ope
 - **CLIProxyAPI:** keep the proxy running at the default URL or at the absolute URL in `CLIPROXYAPI_BASE_URL`.
 - **Credentials:** set `CLIPROXYAPI_API_KEY` in the environment. It is required to check `/models` and is never written to `config.toml`; the configuration stores only its environment-variable name.
 
-The installer and provider switch preserve user intent: they do not overwrite an existing model or model-provider selection. `use openai` removes only the verified pi-kit-managed root selection, so Codex returns to its native OpenAI/ChatGPT default while retaining the managed CLIProxyAPI registration for a later switch back. If `model_providers.cliproxyapi` already exists without pi-kit management markers, installation fails closed rather than replacing it. Uninstall removes only marked managed blocks and leaves all other Codex settings intact. None of these commands accesses Codex authentication storage.
+The passive installer preserves user intent: it does not overwrite an existing model or model-provider selection. The active `use` commands deliberately change root selection: `use cliproxyapi` adopts the existing model name into a managed CLIProxyAPI root block, and `use openai` removes a CLIProxyAPI root selection and model so Codex returns to its native OpenAI/ChatGPT default. Both retain the managed CLIProxyAPI registration for a later switch back. If `model_providers.cliproxyapi` already exists without pi-kit management markers, installation and activation fail closed rather than replacing it. Uninstall removes only marked managed blocks and leaves all other Codex settings intact. None of these commands accesses Codex authentication storage.
 
 ### Verify and troubleshoot Codex
 
@@ -54,7 +54,7 @@ Run `pi-kit-codex doctor` before and after installation. A healthy result report
 | `API key: missing` | Set `CLIPROXYAPI_API_KEY` in the terminal or user environment, then open a new terminal or refresh the current one. |
 | `model_providers.cliproxyapi already exists without pi-kit markers` | Keep and manage that existing provider yourself, or remove/rename it deliberately before running `install`; pi-kit will not overwrite it. |
 
-Codex cannot dynamically register a provider at runtime. According to OpenAI's [Codex configuration reference](https://developers.openai.com/codex/config-reference/), `model_catalog_json` is loaded at startup; catalog synchronization is outside this MVP. Restart or reload Codex after `install`, either `use` command, or after changing proxy-side model availability. Use `doctor` to check the current proxy's `/models` endpoint separately. A user-owned explicit model or provider selection intentionally prevents `use cliproxyapi` from changing the active selection; remove or adjust that selection yourself if you want to switch.
+Codex cannot dynamically register a provider at runtime. According to OpenAI's [Codex configuration reference](https://developers.openai.com/codex/config-reference/), `model_catalog_json` is loaded at startup; catalog synchronization is outside this MVP. Restart or reload Codex after `install`, either `use` command, or after changing proxy-side model availability. Use `doctor` to check the current proxy's `/models` endpoint separately. `use cliproxyapi` intentionally replaces root model and provider selections; use `install` instead when you only want to register the managed provider without changing an existing selection.
 
 ## Included resources
 

@@ -24,7 +24,7 @@ export type CodexConfigResult = {
 
 export type CodexCLIProxyAPIStatus = {
   path: string;
-  selection: "managed CLIProxyAPI" | "OpenAI default" | "user selected";
+  selection: "managed CLIProxyAPI" | "CLIProxyAPI" | "OpenAI default" | "user selected";
   provider: "managed registered" | "user registered" | "not registered";
 };
 
@@ -93,7 +93,32 @@ export async function installCodexCLIProxyAPI(options: CodexConfigOptions = {}):
 }
 
 export async function activateCodexCLIProxyAPI(options: CodexConfigOptions = {}): Promise<CodexConfigResult> {
-  return installCodexCLIProxyAPI(options);
+  const path = codexConfigPath(options);
+  const original = await readConfig(path);
+  const blocks = validateManagedBlocks(original);
+  const parsed = validateToml(original, path);
+  const baseUrl = managedBaseUrl(options);
+  if (blocks.provider) assertProviderBlock(blocks.provider, baseUrl);
+  if (providerFromParsedToml(parsed) && !blocks.provider) {
+    throw new Error("model_providers.cliproxyapi already exists without pi-kit markers; refusing to overwrite it.");
+  }
+
+  let next = original;
+  if (blocks.root) {
+    assertRootBlock(blocks.root);
+  } else {
+    const model = typeof parsed.model === "string" ? parsed.model : DEFAULT_CODEX_MODEL;
+    next = prependRoot(removeRootSelections(next), rootBlock(newlineFor(next), model));
+  }
+
+  const blocksAfterRoot = validateManagedBlocks(next);
+  const managedProvider = Boolean(blocksAfterRoot.provider);
+  if (!blocksAfterRoot.provider) next = appendProvider(next, providerBlock(newlineFor(next), baseUrl));
+
+  if (next === original) return { path, changed: false, managedRoot: true, managedProvider };
+  validateToml(next, path);
+  await replaceAtomically(path, original, next);
+  return { path, changed: true, managedRoot: true, managedProvider: true };
 }
 
 export async function deactivateCodexCLIProxyAPI(options: CodexConfigOptions = {}): Promise<CodexConfigResult> {
@@ -102,15 +127,20 @@ export async function deactivateCodexCLIProxyAPI(options: CodexConfigOptions = {
   const blocks = validateManagedBlocks(original);
   validateToml(original, path);
   if (blocks.provider) assertProviderBlock(blocks.provider);
-  if (!blocks.root) {
+  if (blocks.root) assertRootBlock(blocks.root);
+
+  let next = blocks.root ? original.slice(0, blocks.root.start) + original.slice(blocks.root.end) : original;
+  const parsed = validateToml(next, path);
+  if (blocks.root || hasUserModelSelection(parsed)) {
+    next = removeRootSelections(next);
+  }
+
+  if (next === original) {
     return { path, changed: false, managedRoot: false, managedProvider: Boolean(blocks.provider) };
   }
-  assertRootBlock(blocks.root);
-
-  const next = original.slice(0, blocks.root.start) + original.slice(blocks.root.end);
   validateToml(next, path);
   await replaceAtomically(path, original, next);
-  return { path, changed: true, managedRoot: true, managedProvider: Boolean(blocks.provider) };
+  return { path, changed: true, managedRoot: false, managedProvider: Boolean(blocks.provider) };
 }
 
 export async function getCodexCLIProxyAPIStatus(options: CodexConfigOptions = {}): Promise<CodexCLIProxyAPIStatus> {
@@ -121,7 +151,10 @@ export async function getCodexCLIProxyAPIStatus(options: CodexConfigOptions = {}
 
   return {
     path,
-    selection: blocks.root ? "managed CLIProxyAPI" : hasUserModelSelection(parsed) ? "user selected" : "OpenAI default",
+    selection: blocks.root ? "managed CLIProxyAPI"
+      : parsed.model_provider === "cliproxyapi" ? "CLIProxyAPI"
+      : (!hasUserModelSelection(parsed) || parsed.model_provider === "openai") ? "OpenAI default"
+      : "user selected",
     provider: blocks.provider ? "managed registered" : providerFromParsedToml(parsed) ? "user registered" : "not registered",
   };
 }
@@ -159,8 +192,8 @@ export async function readCodexConfig(options: CodexConfigOptions = {}): Promise
   return { path, content, blocks };
 }
 
-function rootBlock(newline: string): string {
-  return [ROOT_START, `model = "${DEFAULT_CODEX_MODEL}"`, 'model_provider = "cliproxyapi"', ROOT_END].join(newline);
+function rootBlock(newline: string, model = DEFAULT_CODEX_MODEL): string {
+  return [ROOT_START, `model = "${escapeTomlString(model)}"`, 'model_provider = "cliproxyapi"', ROOT_END].join(newline);
 }
 
 function providerBlock(newline: string, baseUrl: string): string {
@@ -237,6 +270,17 @@ function hasUserModelSelection(parsed: Record<string, unknown>): boolean {
     || Object.prototype.hasOwnProperty.call(parsed, "model_provider");
 }
 
+function removeRootSelections(content: string): string {
+  let inRootTable = true;
+  return content.split(/(?<=\n)/).filter((line) => {
+    if (/^\uFEFF?[ \t]*\[/.test(line)) inRootTable = false;
+    if (!inRootTable) return true;
+    if (/^\uFEFF?[ \t]*model[ \t]*=/.test(line)) return false;
+    if (/^\uFEFF?[ \t]*model_provider[ \t]*=/.test(line)) return false;
+    return true;
+  }).join("");
+}
+
 function validateManagedBlocks(content: string): ManagedBlocks {
   const root = findUniqueBlock(content, ROOT_START, ROOT_END, "root");
   const provider = findUniqueBlock(content, PROVIDER_START, PROVIDER_END, "provider");
@@ -280,7 +324,16 @@ function endOfLine(content: string, markerEnd: number): number {
 
 function assertRootBlock(block: Block): void {
   const newline = newlineFor(block.content);
-  if (block.content !== rootBlock(newline) && block.content !== rootBlock(newline) + newline) {
+  const terminal = block.content.endsWith(ROOT_END + newline) ? ROOT_END + newline : ROOT_END;
+  if (!block.content.startsWith(ROOT_START + newline) || !block.content.endsWith(terminal)) {
+    throw new Error("Managed Codex CLIProxyAPI root block has been modified; refusing to continue.");
+  }
+  try {
+    const parsed = parse(block.content) as Record<string, unknown>;
+    if (typeof parsed.model !== "string" || parsed.model_provider !== "cliproxyapi") {
+      throw new Error("invalid managed root selection");
+    }
+  } catch {
     throw new Error("Managed Codex CLIProxyAPI root block has been modified; refusing to continue.");
   }
 }

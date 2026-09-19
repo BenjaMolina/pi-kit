@@ -19,8 +19,8 @@ const HELP = [
   "Commands:",
   "  doctor       Report Codex, configuration, and CLIProxyAPI connectivity status.",
   "  status       Report offline provider selection and registration status.",
-  "  use openai   Remove only pi-kit's managed CLIProxyAPI selection.",
-  "  use cliproxyapi  Activate pi-kit's managed CLIProxyAPI selection when safe.",
+  "  use openai   Actively switch to the native OpenAI default selection.",
+  "  use cliproxyapi  Actively switch to pi-kit's managed CLIProxyAPI selection.",
   "  install      Install the managed CLIProxyAPI Codex configuration blocks.",
   "  uninstall    Remove only the managed CLIProxyAPI Codex configuration blocks.",
   "  --help       Show this help message.",
@@ -55,12 +55,8 @@ export async function runCodexCLI(args: string[], options: CodexCLIOptions = {})
       const result = target === "openai"
         ? await deactivateCodexCLIProxyAPI(options)
         : await activateCodexCLIProxyAPI(options);
-      if (target === "cliproxyapi" && !result.managedRoot) {
-        stdout(`CLIProxyAPI selection was not changed because an explicit user selection is present: ${result.path}`);
-      } else {
-        const action = target === "openai" ? "Switched to OpenAI default" : "Activated CLIProxyAPI selection";
-        stdout(result.changed ? `${action}: ${result.path}` : `${action} unchanged: ${result.path}`);
-      }
+      const action = target === "openai" ? "Switched to OpenAI default" : "Activated CLIProxyAPI selection";
+      stdout(result.changed ? `${action}: ${result.path}` : `${action} unchanged: ${result.path}`);
       return 0;
     }
     if (command === "status") {
