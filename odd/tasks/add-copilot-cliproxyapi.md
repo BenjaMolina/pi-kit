@@ -31,7 +31,7 @@ Each work unit keeps tests and user-facing documentation with the behavior it ve
 - [x] Add unified `pi-kit-copilot` VS Code commands. Evidence: `sync`, `vscode sync`, `vscode status`, and `vscode uninstall` are routed in `src/copilot/cli.ts`; synchronization preserves shared preferred model state and never starts/restarts VS Code.
 - [x] Add VS Code tests, package-consumer checks, and documentation. Evidence: focused config/CLI tests cover first install, refresh, preservation, unsafe refusal, secret-safe output, uninstall, atomic failures, paths, routing, and doctor; the packed consumer executes `vscode sync` and `vscode uninstall`.
 - [x] Verify Gemini and Claude with Copilot CLI; verify generated VS Code models in Chat/Agent. Evidence: Copilot CLI 1.0.86 launched with BYOK environment responded live with Gemini (`gemini-3.8-flash-high`) and Claude (`agy-bmolina/claude-opus-4-6-thinking`); VS Code `chatLanguageModels.json` synchronized 55 dynamic models with `/v1/responses` URLs and toolCalling/vision/reasoning capabilities.
-- [ ] Deliver reviewable PR slices linked to issue #51.
+- [x] Deliver reviewable PR slices linked to issue #51. Evidence: PR #52 merged into `main` (`691d65a`) with `type:feature` and `size:exception` labels, all CI checks passing.
 
 ## Work unit 1 evidence
 
