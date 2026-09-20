@@ -26,6 +26,11 @@ export type CopilotPickerOptions = {
   onEscapePending?: (flush: () => void) => void;
 };
 
+export type CopilotEffortPickerOptions = CopilotPickerOptions & {
+  defaultLevel?: string;
+  modelId?: string;
+};
+
 export function matchSubsequence(query: string, text: string): { start: number; end: number } | undefined {
   if (!query) return { start: 0, end: 0 };
   let qIdx = 0;
@@ -178,6 +183,48 @@ export function renderPickerLines(
   return lines;
 }
 
+export function formatEffortLine(level: string, isSelected: boolean): string {
+  const pointer = isSelected ? "❯ " : "  ";
+  return `${pointer}${level}`;
+}
+
+export function renderEffortPickerLines(
+  levels: string[],
+  query: string,
+  selectedIndex: number,
+  windowStart: number,
+  maxVisible = 8,
+  modelId?: string,
+): string[] {
+  const lines: string[] = [];
+  const title = modelId ? `? Select reasoning effort for ${modelId}` : `? Select reasoning effort`;
+  lines.push(`${title} (type to filter): ${query}`);
+
+  if (levels.length === 0) {
+    lines.push(`  No reasoning levels match "${query}"`);
+    return lines;
+  }
+
+  const visibleEnd = Math.min(windowStart + maxVisible, levels.length);
+  const total = levels.length;
+  lines.push(`  Showing ${windowStart + 1}–${visibleEnd} of ${total} levels (↑/↓ to navigate, Enter to select, Esc to cancel)`);
+
+  for (let i = windowStart; i < visibleEnd; i++) {
+    lines.push(formatEffortLine(levels[i], i === selectedIndex));
+  }
+
+  return lines;
+}
+
+export function filterEffortLevels(levels: string[], query: string): string[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [...levels];
+  return levels.filter((level) => {
+    const lower = level.toLowerCase();
+    return lower.includes(q) || Boolean(matchSubsequence(q, lower));
+  });
+}
+
 function isEscapePrefix(s: string): boolean {
   if (s === "\x1b" || s === "\x1bO") return true;
   if (s.startsWith("\x1b[")) {
@@ -186,10 +233,17 @@ function isEscapePrefix(s: string): boolean {
   return false;
 }
 
-export async function selectCopilotModel(
-  models: CLIProxyModel[],
-  options: CopilotPickerOptions = {},
-): Promise<CLIProxyModel | undefined> {
+type InteractivePickerConfig<T> = {
+  items: T[];
+  filter: (items: T[], query: string) => T[];
+  renderLines: (filtered: T[], query: string, selectedIndex: number, windowStart: number, maxVisible: number) => string[];
+  initialIndex?: number;
+  emptyError: string;
+  options?: CopilotPickerOptions;
+};
+
+async function runInteractivePicker<T>(config: InteractivePickerConfig<T>): Promise<T | undefined> {
+  const options = config.options ?? {};
   const terminal = options.terminal ?? {};
   const stdin = (terminal.stdin ?? process.stdin) as any;
   const stdout = (terminal.stdout ?? process.stdout) as any;
@@ -201,22 +255,28 @@ export async function selectCopilotModel(
     );
   }
 
-  if (models.length === 0) {
-    throw new Error("No models are currently available from CLIProxyAPI.");
+  if (config.items.length === 0) {
+    throw new Error(config.emptyError);
   }
 
   const maxVisible = options.maxVisible ?? 8;
   const escapeTimeoutMs = options.escapeTimeoutMs ?? 30;
 
-  return new Promise<CLIProxyModel | undefined>((resolve, reject) => {
+  return new Promise<T | undefined>((resolve, reject) => {
     let settled = false;
     let escapeTimer: any = null;
     let buffer = "";
 
     let query = "";
-    let filtered = filterAndRankModels(models, query);
-    let selectedIndex = 0;
+    let filtered = config.filter(config.items, query);
+    let selectedIndex = config.initialIndex ?? 0;
+    if (selectedIndex < 0 || selectedIndex >= filtered.length) {
+      selectedIndex = 0;
+    }
     let windowStart = 0;
+    if (selectedIndex >= maxVisible) {
+      windowStart = selectedIndex - maxVisible + 1;
+    }
     let lastRenderedLineCount = 0;
 
     function render(): void {
@@ -231,7 +291,7 @@ export async function selectCopilotModel(
           // ignore
         }
       }
-      const lines = renderPickerLines(filtered, query, selectedIndex, windowStart, maxVisible);
+      const lines = config.renderLines(filtered, query, selectedIndex, windowStart, maxVisible);
       stdout.write?.(lines.join("\n"));
       lastRenderedLineCount = lines.length;
     }
@@ -290,7 +350,7 @@ export async function selectCopilotModel(
       }
     }
 
-    function finish(result: CLIProxyModel | undefined): void {
+    function finish(result: T | undefined): void {
       if (settled) return;
       settled = true;
       teardown();
@@ -513,7 +573,7 @@ export async function selectCopilotModel(
           buffer = buffer.slice(1);
           if (query.length > 0) {
             query = query.slice(0, -1);
-            filtered = filterAndRankModels(models, query);
+            filtered = config.filter(config.items, query);
             selectedIndex = 0;
             windowStart = 0;
             render();
@@ -526,7 +586,7 @@ export async function selectCopilotModel(
           buffer = buffer.slice(1);
           if (query.length > 0) {
             query = "";
-            filtered = filterAndRankModels(models, query);
+            filtered = config.filter(config.items, query);
             selectedIndex = 0;
             windowStart = 0;
             render();
@@ -539,7 +599,7 @@ export async function selectCopilotModel(
           buffer = buffer.slice(1);
           if (query.length > 0) {
             query = query.replace(/\S+\s*$/, "");
-            filtered = filterAndRankModels(models, query);
+            filtered = config.filter(config.items, query);
             selectedIndex = 0;
             windowStart = 0;
             render();
@@ -553,7 +613,7 @@ export async function selectCopilotModel(
           const text = printableMatch[0];
           buffer = buffer.slice(text.length);
           query += text;
-          filtered = filterAndRankModels(models, query);
+          filtered = config.filter(config.items, query);
           selectedIndex = 0;
           windowStart = 0;
           render();
@@ -606,5 +666,48 @@ export async function selectCopilotModel(
     } catch (err) {
       fail(err);
     }
+  });
+}
+
+export async function selectCopilotModel(
+  models: CLIProxyModel[],
+  options: CopilotPickerOptions = {},
+): Promise<CLIProxyModel | undefined> {
+  return runInteractivePicker<CLIProxyModel>({
+    items: models,
+    filter: filterAndRankModels,
+    renderLines: renderPickerLines,
+    emptyError: "No models are currently available from CLIProxyAPI.",
+    options,
+  });
+}
+
+export function resolveInitialEffortIndex(levels: string[], defaultLevel?: string): number {
+  if (!defaultLevel) return 0;
+  const exact = levels.findIndex((l) => l === defaultLevel);
+  if (exact !== -1) return exact;
+
+  const lower = defaultLevel.toLowerCase();
+  const ciMatches = levels
+    .map((level, idx) => ({ level, idx }))
+    .filter(({ level }) => level.toLowerCase() === lower);
+
+  return ciMatches.length === 1 ? ciMatches[0].idx : 0;
+}
+
+export async function selectCopilotReasoningEffort(
+  levels: string[],
+  options: CopilotEffortPickerOptions = {},
+): Promise<string | undefined> {
+  const initialIndex = resolveInitialEffortIndex(levels, options.defaultLevel);
+
+  return runInteractivePicker<string>({
+    items: levels,
+    filter: filterEffortLevels,
+    renderLines: (filtered, query, selectedIndex, windowStart, maxVisible) =>
+      renderEffortPickerLines(filtered, query, selectedIndex, windowStart, maxVisible, options.modelId),
+    initialIndex,
+    emptyError: "No reasoning levels are available.",
+    options,
   });
 }
