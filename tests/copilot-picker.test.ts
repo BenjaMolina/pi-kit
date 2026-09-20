@@ -3,11 +3,16 @@ import { EventEmitter } from "node:events";
 import type { CLIProxyModel } from "../src/cliproxyapi/models";
 import {
   filterAndRankModels,
+  filterEffortLevels,
+  formatEffortLine,
   formatModelLine,
   formatTokens,
   matchSubsequence,
+  renderEffortPickerLines,
   renderPickerLines,
+  resolveInitialEffortIndex,
   selectCopilotModel,
+  selectCopilotReasoningEffort,
 } from "../src/copilot/picker";
 
 const TEST_MODELS: CLIProxyModel[] = [
@@ -493,5 +498,142 @@ describe("copilot model picker interactive terminal session", () => {
     expect(stdin.paused).toBe(true);
     expect(stdin.listenerCount("data")).toBe(0);
     expect(stdout.written.some((w) => w.includes("\x1b[?25h"))).toBe(true);
+  });
+});
+
+describe("copilot reasoning effort filtering and rendering", () => {
+  const CUSTOM_LEVELS = ["Budget-4K", "Deep_Thought", "xHigh", "MAX", "low"];
+
+  test("preserves exact advertised order, filters case-insensitively/fuzzy, and formats lines", () => {
+    expect(filterEffortLevels(CUSTOM_LEVELS, "")).toEqual(CUSTOM_LEVELS);
+    expect(filterEffortLevels(CUSTOM_LEVELS, "thought")).toEqual(["Deep_Thought"]);
+    expect(filterEffortLevels(CUSTOM_LEVELS, "max")).toEqual(["MAX"]);
+    expect(filterEffortLevels(CUSTOM_LEVELS, "xhi")).toEqual(["xHigh"]);
+    expect(filterEffortLevels(CUSTOM_LEVELS, "bg4")).toEqual(["Budget-4K"]);
+    expect(filterEffortLevels(CUSTOM_LEVELS, "missing")).toEqual([]);
+
+    expect(formatEffortLine("Medium", true)).toBe("❯ Medium");
+    expect(formatEffortLine("Medium", false)).toBe("  Medium");
+
+    const withModel = renderEffortPickerLines(["LOW", "Medium", "high"], "", 1, 0, 8, "claude-3-7-sonnet");
+    expect(withModel[0]).toBe("? Select reasoning effort for claude-3-7-sonnet (type to filter): ");
+    expect(withModel[1]).toContain("Showing 1–3 of 3 levels");
+    expect(withModel[3]).toBe("❯ Medium");
+
+    const empty = renderEffortPickerLines([], "missing", 0, 0, 8);
+    expect(empty[0]).toBe("? Select reasoning effort (type to filter): missing");
+    expect(empty[1]).toContain('No reasoning levels match "missing"');
+  });
+
+  test("resolveInitialEffortIndex handles exact, unique case-insensitive, and ambiguous matches", () => {
+    expect(resolveInitialEffortIndex(["low", "medium", "high"], "medium")).toBe(1);
+    expect(resolveInitialEffortIndex(["LOW", "Medium", "high"], "medium")).toBe(1);
+    expect(resolveInitialEffortIndex(["low", "LOW"], "LOW")).toBe(1);
+    expect(resolveInitialEffortIndex(["low", "LOW"], "Low")).toBe(0);
+    expect(resolveInitialEffortIndex(["high", "low", "LOW"], "Low")).toBe(0);
+    expect(resolveInitialEffortIndex(["low", "medium"], "unknown")).toBe(0);
+    expect(resolveInitialEffortIndex(["low", "medium"])).toBe(0);
+  });
+});
+
+describe("copilot reasoning effort interactive picker session", () => {
+  test("refuses non-TTY execution or empty levels with actionable errors", async () => {
+    const stdin = new MockStdin();
+    stdin.isTTY = false;
+    const stdout = new MockStdout();
+    await expect(
+      selectCopilotReasoningEffort(["low"], { terminal: { stdin, stdout, isTTY: false } }),
+    ).rejects.toThrow("pi-kit-copilot pick requires an interactive terminal (TTY)");
+
+    await expect(
+      selectCopilotReasoningEffort([], { terminal: { stdin: new MockStdin(), stdout: new MockStdout(), isTTY: true } }),
+    ).rejects.toThrow("No reasoning levels are available");
+  });
+
+  test.each([
+    { desc: "selects first level on immediate Enter when defaultLevel is absent", levels: ["LOW", "Medium", "high"], defaultLevel: undefined, expected: "LOW" },
+    { desc: "uses exact defaultReasoningLevel as initial selection hint", levels: ["LOW", "Medium", "high"], defaultLevel: "Medium", expected: "Medium" },
+    { desc: "uses case-insensitive defaultReasoningLevel when unique and returns exact advertised spelling", levels: ["LOW", "Medium", "high"], defaultLevel: "medium", expected: "Medium" },
+    { desc: "retains normal initial index when case-insensitive defaultLevel is ambiguous for low/LOW", levels: ["low", "LOW"], defaultLevel: "Low", expected: "low" },
+    { desc: "retains normal initial index when case-insensitive defaultLevel is ambiguous with preceding items", levels: ["high", "low", "LOW"], defaultLevel: "Low", expected: "high" },
+    { desc: "prefers exact match even when another case-insensitive variant exists", levels: ["low", "LOW"], defaultLevel: "LOW", expected: "LOW" },
+    { desc: "defaults to index 0 when defaultReasoningLevel does not match any advertised level", levels: ["LOW", "Medium", "high"], defaultLevel: "unknown-level", expected: "LOW" },
+    { desc: "preserves arbitrary provider-advertised names, casing, and order", levels: ["Budget-4K", "Deep_Thought", "xHigh", "MAX"], defaultLevel: "deep_thought", expected: "Deep_Thought" },
+  ])("$desc", async ({ levels, defaultLevel, expected }) => {
+    const stdin = new MockStdin();
+    const stdout = new MockStdout();
+    const promise = selectCopilotReasoningEffort(levels, {
+      defaultLevel,
+      terminal: { stdin, stdout, isTTY: true },
+    });
+    stdin.emit("data", "\r");
+    expect(await promise).toBe(expected);
+    expect(stdin.rawMode).toBe(false);
+  });
+
+  test("navigates with Down/Up arrows before Enter", async () => {
+    const stdin = new MockStdin();
+    const stdout = new MockStdout();
+    const promise = selectCopilotReasoningEffort(["low", "medium", "high", "xhigh"], {
+      terminal: { stdin, stdout, isTTY: true },
+    });
+    stdin.emit("data", "\x1b[B"); // down -> medium
+    stdin.emit("data", "\x1b[B"); // down -> high
+    stdin.emit("data", "\x1b[A"); // up -> medium
+    stdin.emit("data", "\n");
+    expect(await promise).toBe("medium");
+  });
+
+  test("filters levels dynamically with typing, backspace, and confirms", async () => {
+    const stdin = new MockStdin();
+    const stdout = new MockStdout();
+    const promise = selectCopilotReasoningEffort(["low", "medium", "high", "xhigh"], {
+      terminal: { stdin, stdout, isTTY: true },
+    });
+    stdin.emit("data", "x");
+    stdin.emit("data", "h");
+    stdin.emit("data", "\x7f"); // backspace -> 'x'
+    stdin.emit("data", "h"); // -> 'xh'
+    stdin.emit("data", "\r");
+    expect(await promise).toBe("xhigh");
+  });
+
+  test.each([
+    { name: "Escape key", emit: (stdin: MockStdin) => stdin.emit("data", "\x1b"), opts: { escapeTimeoutMs: 0 } },
+    { name: "Ctrl+C", emit: (stdin: MockStdin) => stdin.emit("data", "\x03"), opts: {} },
+    { name: "stream end", emit: (stdin: MockStdin) => stdin.emit("end"), opts: {} },
+  ])("cancels on $name and returns undefined without error", async ({ emit, opts }) => {
+    const stdin = new MockStdin();
+    const stdout = new MockStdout();
+    const promise = selectCopilotReasoningEffort(["low", "high"], {
+      ...opts,
+      terminal: { stdin, stdout, isTTY: true },
+    });
+    emit(stdin);
+    expect(await promise).toBeUndefined();
+    expect(stdin.rawMode).toBe(false);
+  });
+
+  test("handles split escape sequences and scrolling when initialIndex exceeds maxVisible", async () => {
+    const stdin1 = new MockStdin();
+    const stdout1 = new MockStdout();
+    const splitPromise = selectCopilotReasoningEffort(["low", "medium", "high"], {
+      terminal: { stdin: stdin1, stdout: stdout1, isTTY: true },
+    });
+    stdin1.emit("data", "\x1b");
+    stdin1.emit("data", "[B");
+    stdin1.emit("data", "\r");
+    expect(await splitPromise).toBe("medium");
+
+    const levels = ["l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "l9", "l10"];
+    const stdin2 = new MockStdin();
+    const stdout2 = new MockStdout();
+    const scrollPromise = selectCopilotReasoningEffort(levels, {
+      defaultLevel: "l9",
+      maxVisible: 3,
+      terminal: { stdin: stdin2, stdout: stdout2, isTTY: true },
+    });
+    stdin2.emit("data", "\r");
+    expect(await scrollPromise).toBe("l9");
   });
 });
