@@ -69,9 +69,12 @@ The existing picker supports changing models before a new launch, but changing m
 - Bounded correction implemented in `src/copilot/launcher.ts` with comprehensive launch-plan tests and README clarification.
 - Correction verification passed: 30 focused tests, 127 full-suite tests, packed consumers, release-manifest validation, and diff hygiene.
 - Parent spot check: `bun test tests/copilot-cli.test.ts` — 30 passed, 0 failed, 155 expectations; diff hygiene passed.
-- Independent verification of the correction is in progress because native assessment remains unavailable due to the missing package-local Gentle AI binary.
+- Independent correction verification passed every automated check and found no deterministic defect; status remained partial only pending the real provider/session test.
+- Correction commit `8a57486` was pushed to PR #66; CI `verify` passed and the PR is clean.
+- Live Windows validation passed after the correction: a session created under Sonnet was switched to `gemini-3.8-flash-high`, resumed successfully, retained the conversation fact `ORQUÍDEA`, showed Gemini in the footer, and produced no provider-routing error.
 - A separate native auxiliary-model issue involving `gpt-5.4-nano` was observed but is outside Issue #65 and will not broaden this correction.
+- Follow-up observation: the current picker selects a model but does not select/persist Copilot's `--reasoning-effort`; reasoning-level selection is new product scope and is not included in Issue #65.
 
 ## Next step
 
-Reconcile independent verification, commit and push the correction to PR #66, then repeat the live Sonnet → Gemini session-resume test before merge.
+Merge PR #66 after explicit authorization. Handle reasoning-effort selection as a separate approved feature so the verified switch-and-resume fix remains focused.
