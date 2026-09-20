@@ -3,7 +3,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { VSCodeFileSystem } from "../src/copilot/vscode";
-import { runCopilotCLI } from "../src/copilot/cli";
+import { matchReasoningEffort, runCopilotCLI } from "../src/copilot/cli";
 import {
   buildCopilotEnvironment,
   copilotCatalogModelId,
@@ -32,8 +32,62 @@ const MODEL = {
   maxTokens: 32_000,
 };
 
+const REASONING_MODEL = {
+  slug: "anthropic/claude-3-7-sonnet",
+  id: "anthropic/claude-3-7-sonnet",
+  display_name: "Claude 3.7 Sonnet",
+  default_reasoning_level: "medium",
+  supported_reasoning_levels: [
+    { effort: "LOW" },
+    { effort: "Medium" },
+    { effort: "high" },
+  ],
+  context_window: 200_000,
+  max_tokens: 64_000,
+};
+
+const CUSTOM_MODEL = {
+  slug: "team/future-thinker",
+  id: "team/future-thinker",
+  display_name: "Future Thinker",
+  default_reasoning_level: "budget-4k",
+  supported_reasoning_levels: [
+    { effort: "Budget-4K" },
+    { effort: "Deep_Thought" },
+    { effort: "xHigh" },
+    { effort: "MAX" },
+  ],
+  context_window: 128_000,
+  max_tokens: 32_000,
+};
+
+const HEURISTIC_MODEL = {
+  slug: "google/gemini-fallback",
+  id: "google/gemini-fallback",
+  display_name: "Gemini Fallback",
+  supported_reasoning_levels: [],
+  context_window: 200_000,
+  max_tokens: 32_000,
+};
+
+const AMBIGUOUS_MODEL = {
+  slug: "team/ambiguous-thinker",
+  id: "team/ambiguous-thinker",
+  display_name: "Ambiguous Thinker",
+  supported_reasoning_levels: [
+    { effort: "low" },
+    { effort: "LOW" },
+  ],
+  context_window: 64_000,
+  max_tokens: 8192,
+};
+
 function catalogFetch(models = [MODEL]) {
   return async () => new Response(JSON.stringify({ models }));
+}
+
+function reasoningCatalogFetch() {
+  return catalogFetch([MODEL, REASONING_MODEL, CUSTOM_MODEL, HEURISTIC_MODEL, AMBIGUOUS_MODEL]);
 }
 
 async function fixture() {
@@ -123,6 +177,36 @@ describe("pi-kit-copilot state and discovery", () => {
     await expect(runCopilotCLI(["use", "not-in-catalog"], { ...options, stderr: (line) => errors.push(line) })).resolves.toBe(1);
     expect(errors.join("\n")).toContain("Model is not currently available");
     expect((await readCopilotState(options))?.modelId).toBe(MODEL.id);
+  });
+
+  test("reads legacy version 1 state without reasoningEffort and accepts optional reasoningEffort", async () => {
+    const options = await fixture();
+    const path = resolveCopilotStatePath(options);
+    const legacyJson = JSON.stringify({ version: 1, modelId: MODEL.id, wireApi: "responses" });
+    const { mkdir: fsMkdir, writeFile: fsWriteFile } = await import("node:fs/promises");
+    const { dirname: pathDirname } = await import("node:path");
+    await fsMkdir(pathDirname(path), { recursive: true });
+    await fsWriteFile(path, `${legacyJson}\n`, "utf8");
+
+    const state = await readCopilotState(options);
+    expect(state).toEqual({ version: 1, modelId: MODEL.id, wireApi: "responses" });
+    expect(state?.reasoningEffort).toBeUndefined();
+
+    await writeCopilotState(createCopilotState(MODEL.id, "responses", "Budget-4K"), options);
+    const updated = await readCopilotState(options);
+    expect(updated?.reasoningEffort).toBe("Budget-4K");
+  });
+
+  test("rejects invalid reasoningEffort values in createCopilotState and writeCopilotState", async () => {
+    const options = await fixture();
+    expect(() => createCopilotState(MODEL.id, "responses", "")).toThrow("selection is invalid");
+    expect(() => createCopilotState(MODEL.id, "responses", "   ")).toThrow("selection is invalid");
+    await expect(writeCopilotState({ version: 1, modelId: MODEL.id, wireApi: "responses", reasoningEffort: "" }, options))
+      .rejects.toThrow("state is invalid");
+    await expect(writeCopilotState({ version: 1, modelId: MODEL.id, wireApi: "responses", reasoningEffort: "   " }, options))
+      .rejects.toThrow("state is invalid");
+    await expect(writeCopilotState({ version: 1, modelId: MODEL.id, wireApi: "responses", reasoningEffort: 123 as any }, options))
+      .rejects.toThrow("state is invalid");
   });
 });
 
@@ -602,10 +686,269 @@ describe("pi-kit-copilot BYOK launcher", () => {
     }
   });
 
-  test("displays help message including switch command", async () => {
+  test("displays help message including switch command and updated use options", async () => {
     const output: string[] = [];
     await expect(runCopilotCLI(["--help"], { stdout: (line) => output.push(line) })).resolves.toBe(0);
     const text = output.join("\n");
     expect(text).toContain("switch [--wire-api=...]");
+    expect(text).toContain("use <model-id> [--wire-api=...] [--reasoning-effort=...]");
+  });
+});
+
+describe("pi-kit-copilot reasoning effort CLI workflows", () => {
+  test.each([
+    { state: undefined, expectedEffort: "none", expectedModel: "none", expectedWireApi: "responses" },
+    { state: createCopilotState(MODEL.id), expectedEffort: "none", expectedModel: MODEL.id, expectedWireApi: "responses" },
+    { state: createCopilotState(REASONING_MODEL.id, "completions", "Medium"), expectedEffort: "Medium", expectedModel: REASONING_MODEL.id, expectedWireApi: "completions" },
+  ])("status reports model, wireApi, and reasoning effort: $expectedEffort", async ({ state, expectedEffort, expectedModel, expectedWireApi }) => {
+    const options = await fixture();
+    if (state) await writeCopilotState(state, options);
+    const output: string[] = [];
+    await expect(runCopilotCLI(["status"], { ...options, stdout: (line) => output.push(line) })).resolves.toBe(0);
+    const text = output.join("\n");
+    expect(text).toContain(`Selection: ${expectedModel}`);
+    expect(text).toContain(`Wire API: ${expectedWireApi}`);
+    expect(text).toContain(`Reasoning effort: ${expectedEffort}`);
+  });
+
+  test("matchReasoningEffort handles exact, unique CI, ambiguous CI, and missing values", () => {
+    const levels = ["LOW", "Medium", "high"];
+    expect(matchReasoningEffort("LOW", levels)).toEqual({ matched: "LOW" });
+    expect(matchReasoningEffort("low", levels)).toEqual({ matched: "LOW" });
+    expect(matchReasoningEffort("MEDIUM", levels)).toEqual({ matched: "Medium" });
+    expect(matchReasoningEffort("extreme", levels)).toEqual({});
+    expect(matchReasoningEffort("", levels)).toEqual({});
+
+    const ambiguous = ["low", "LOW"];
+    expect(matchReasoningEffort("low", ambiguous)).toEqual({ matched: "low" });
+    expect(matchReasoningEffort("LOW", ambiguous)).toEqual({ matched: "LOW" });
+    expect(matchReasoningEffort("Low", ambiguous)).toEqual({ ambiguous: true });
+  });
+
+  test.each([
+    {
+      desc: "exact advertised reasoning effort",
+      args: ["use", REASONING_MODEL.id, "--reasoning-effort=Medium"],
+      expectedModel: REASONING_MODEL.id,
+      expectedWireApi: "responses" as const,
+      expectedEffort: "Medium",
+    },
+    {
+      desc: "unique case-insensitive match preserving exact advertised spelling",
+      args: ["use", REASONING_MODEL.id, "--reasoning-effort=low"],
+      expectedModel: REASONING_MODEL.id,
+      expectedWireApi: "responses" as const,
+      expectedEffort: "LOW",
+    },
+    {
+      desc: "--wire-api before --reasoning-effort",
+      args: ["use", REASONING_MODEL.id, "--wire-api=completions", "--reasoning-effort=high"],
+      expectedModel: REASONING_MODEL.id,
+      expectedWireApi: "completions" as const,
+      expectedEffort: "high",
+    },
+    {
+      desc: "--reasoning-effort before --wire-api",
+      args: ["use", CUSTOM_MODEL.id, "--reasoning-effort=Budget-4K", "--wire-api=responses"],
+      expectedModel: CUSTOM_MODEL.id,
+      expectedWireApi: "responses" as const,
+      expectedEffort: "Budget-4K",
+    },
+    {
+      desc: "exact match on model with multiple case variants",
+      args: ["use", AMBIGUOUS_MODEL.id, "--reasoning-effort=low"],
+      expectedModel: AMBIGUOUS_MODEL.id,
+      expectedWireApi: "responses" as const,
+      expectedEffort: "low",
+    },
+    {
+      desc: "model without effort option omitting effort in state and output",
+      args: ["use", REASONING_MODEL.id],
+      expectedModel: REASONING_MODEL.id,
+      expectedWireApi: "responses" as const,
+      expectedEffort: undefined,
+    },
+  ])("use successfully handles $desc", async ({ args, expectedModel, expectedWireApi, expectedEffort }) => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    const output: string[] = [];
+    await expect(runCopilotCLI(args, { ...options, stdout: (line) => output.push(line) })).resolves.toBe(0);
+
+    const text = output.join("\n");
+    expect(text).toContain(`Selected Copilot model: ${expectedModel}`);
+    if (expectedEffort) {
+      expect(text).toContain(`Reasoning effort: ${expectedEffort}`);
+    } else {
+      expect(text).not.toContain("Reasoning effort:");
+    }
+    expect(await readCopilotState(options)).toEqual({
+      version: 1,
+      modelId: expectedModel,
+      wireApi: expectedWireApi,
+      ...(expectedEffort ? { reasoningEffort: expectedEffort } : {}),
+    });
+  });
+
+  test.each([
+    { args: ["use", REASONING_MODEL.id, "--wire-api=responses", "--wire-api=completions"], expectedErr: "Duplicate option: --wire-api" },
+    { args: ["use", REASONING_MODEL.id, "--reasoning-effort=low", "--reasoning-effort=high"], expectedErr: "Duplicate option: --reasoning-effort" },
+    { args: ["use", REASONING_MODEL.id, "--reasoning-effort"], expectedErr: "--reasoning-effort requires a value" },
+    { args: ["use", REASONING_MODEL.id, "--reasoning-effort="], expectedErr: "--reasoning-effort requires a value" },
+    { args: ["use", REASONING_MODEL.id, "--wire-api"], expectedErr: "--wire-api requires a value" },
+    { args: ["use", REASONING_MODEL.id, "--wire-api="], expectedErr: "--wire-api requires a value" },
+    { args: ["use", REASONING_MODEL.id, "--unknown=val"], expectedErr: "Unknown option: --unknown=val" },
+    { args: ["use"], expectedErr: "Usage: pi-kit-copilot use" },
+    { args: ["use", REASONING_MODEL.id, "extra-model"], expectedErr: "Usage: pi-kit-copilot use" },
+    { args: ["use", MODEL.id, "--reasoning-effort=high"], expectedErr: "Model does not support authoritative reasoning effort" },
+    { args: ["use", HEURISTIC_MODEL.id, "--reasoning-effort=high"], expectedErr: "Model does not support authoritative reasoning effort" },
+    { args: ["use", REASONING_MODEL.id, "--reasoning-effort=extreme"], expectedErr: 'Reasoning effort "extreme" is not supported' },
+    { args: ["use", AMBIGUOUS_MODEL.id, "--reasoning-effort=Low"], expectedErr: 'Reasoning effort "Low" is ambiguous' },
+  ])("use rejects invalid invocation $args: $expectedErr", async ({ args, expectedErr }) => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    await writeCopilotState(createCopilotState("previous-model"), options);
+    const errors: string[] = [];
+    await expect(runCopilotCLI(args, { ...options, stderr: (line) => errors.push(line) })).resolves.toBe(1);
+    expect(errors.join("\n")).toContain(expectedErr);
+    expect((await readCopilotState(options))?.modelId).toBe("previous-model");
+  });
+
+  test("invokes effortPicker for authoritative models and skips for non-authoritative models during pick", async () => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    const output: string[] = [];
+    let effortPickerReceived: any = null;
+
+    await expect(runCopilotCLI(["pick"], {
+      ...options,
+      picker: async (models) => models.find((m) => m.id === REASONING_MODEL.id),
+      effortPicker: async (levels, opts) => {
+        effortPickerReceived = { levels, opts };
+        return "Medium";
+      },
+      stdout: (line) => output.push(line),
+    })).resolves.toBe(0);
+
+    expect(effortPickerReceived.levels).toEqual(["LOW", "Medium", "high"]);
+    expect(effortPickerReceived.opts.defaultLevel).toBe("medium");
+    expect(effortPickerReceived.opts.modelId).toBe(REASONING_MODEL.id);
+    expect(output.join("\n")).toContain(`Selected Copilot model: ${REASONING_MODEL.id}`);
+    expect(output.join("\n")).toContain("Reasoning effort: Medium");
+    expect(await readCopilotState(options)).toEqual({
+      version: 1,
+      modelId: REASONING_MODEL.id,
+      wireApi: "responses",
+      reasoningEffort: "Medium",
+    });
+
+    let nonAuthEffortPickerCalled = false;
+    await expect(runCopilotCLI(["pick"], {
+      ...options,
+      picker: async (models) => models.find((m) => m.id === HEURISTIC_MODEL.id),
+      effortPicker: async () => {
+        nonAuthEffortPickerCalled = true;
+        return "high";
+      },
+      stdout: () => undefined,
+    })).resolves.toBe(0);
+
+    expect(nonAuthEffortPickerCalled).toBe(false);
+    expect(await readCopilotState(options)).toEqual({
+      version: 1,
+      modelId: HEURISTIC_MODEL.id,
+      wireApi: "responses",
+    });
+  });
+
+  test.each([
+    {
+      command: ["pick"],
+      setup: async (opts: any) => {
+        await writeCopilotState(createCopilotState("previous-model", "completions", "low"), opts);
+      },
+      verify: async (opts: any, beforeBytes: string | undefined, launchCalled: boolean) => {
+        expect(launchCalled).toBe(false);
+        const afterBytes = await readFile(resolveCopilotStatePath(opts), "utf8");
+        expect(afterBytes).toBe(beforeBytes!);
+        expect(await readCopilotState(opts)).toEqual({
+          version: 1,
+          modelId: "previous-model",
+          wireApi: "completions",
+          reasoningEffort: "low",
+        });
+      },
+    },
+    {
+      command: ["switch"],
+      setup: async (opts: any) => {
+        await writeCopilotState(createCopilotState("previous-model", "responses"), opts);
+      },
+      verify: async (opts: any, beforeBytes: string | undefined, launchCalled: boolean) => {
+        expect(launchCalled).toBe(false);
+        const afterBytes = await readFile(resolveCopilotStatePath(opts), "utf8");
+        expect(afterBytes).toBe(beforeBytes!);
+      },
+    },
+    {
+      command: ["switch"],
+      setup: async () => {},
+      verify: async (opts: any, _before: any, launchCalled: boolean) => {
+        expect(launchCalled).toBe(false);
+        expect(await readCopilotState(opts)).toBeUndefined();
+        const { existsSync } = await import("node:fs");
+        expect(existsSync(resolveCopilotStatePath(opts))).toBe(false);
+      },
+    },
+    {
+      command: ["launch", "--pick", "--", "hello"],
+      setup: async () => {},
+      verify: async (opts: any, _before: any, launchCalled: boolean) => {
+        expect(launchCalled).toBe(false);
+        expect(await readCopilotState(opts)).toBeUndefined();
+      },
+    },
+  ])("cancellation in effortPicker for $command is a successful no-op preserving previous state byte-for-byte and not launching", async ({ command, setup, verify }) => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    await setup(options);
+    const statePath = resolveCopilotStatePath(options);
+    const { existsSync } = await import("node:fs");
+    const beforeBytes = existsSync(statePath) ? await readFile(statePath, "utf8") : undefined;
+    let launchCalled = false;
+
+    await expect(runCopilotCLI(command, {
+      ...options,
+      picker: async (models) => models.find((m) => m.id === REASONING_MODEL.id),
+      effortPicker: async () => undefined, // cancelled
+      launch: async () => {
+        launchCalled = true;
+        return 0;
+      },
+      stdout: () => undefined,
+    })).resolves.toBe(0);
+
+    await verify(options, beforeBytes, launchCalled);
+  });
+
+  test("does not leak credentials through status, use, or pick output", async () => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    const output: string[] = [];
+    const stdout = (line: string) => output.push(line);
+
+    await runCopilotCLI(["use", REASONING_MODEL.id, "--reasoning-effort=Medium"], { ...options, stdout });
+    await runCopilotCLI(["status"], { ...options, stdout });
+    await runCopilotCLI(["pick"], {
+      ...options,
+      picker: async (models) => models.find((m) => m.id === CUSTOM_MODEL.id),
+      effortPicker: async () => "xHigh",
+      stdout,
+    });
+
+    const fullOutput = output.join("\n");
+    expect(fullOutput).not.toContain(SECRET);
+    expect(fullOutput).not.toContain("ignored");
+    const stateContent = await readFile(resolveCopilotStatePath(options), "utf8");
+    expect(stateContent).not.toContain(SECRET);
   });
 });
