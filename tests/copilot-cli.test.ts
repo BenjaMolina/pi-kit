@@ -369,4 +369,138 @@ describe("pi-kit-copilot BYOK launcher", () => {
     expect(errors.some((e) => e.includes("--wire-api can only be used with --pick"))).toBe(true);
     expect(errors.some((e) => e.includes("Use -- before Copilot arguments"))).toBe(true);
   });
+
+  test("interactively selects a model, persists state, and resumes Copilot with --continue via switch", async () => {
+    const options = await fixture();
+    const launchCalls: string[][] = [];
+    const output: string[] = [];
+    let pickerCalled = false;
+
+    await expect(runCopilotCLI(["switch"], {
+      ...options,
+      picker: async (models) => {
+        pickerCalled = true;
+        return models[0];
+      },
+      launch: async (args) => {
+        launchCalls.push(args);
+        return 17;
+      },
+      stdout: (line) => output.push(line),
+    })).resolves.toBe(17);
+
+    expect(pickerCalled).toBe(true);
+    expect(launchCalls).toEqual([["--continue"]]);
+    expect(output.join("\n")).toContain(`Selected Copilot model: ${MODEL.id}`);
+    expect(await readCopilotState(options)).toEqual({ version: 1, modelId: MODEL.id, wireApi: "responses" });
+  });
+
+  test("persists completions wire API and launches with --continue when requested via switch --wire-api=completions", async () => {
+    const options = await fixture();
+    const launchCalls: string[][] = [];
+
+    await expect(runCopilotCLI(["switch", "--wire-api=completions"], {
+      ...options,
+      picker: async (models) => models[0],
+      launch: async (args) => {
+        launchCalls.push(args);
+        return 0;
+      },
+      stdout: () => undefined,
+    })).resolves.toBe(0);
+
+    expect(launchCalls).toEqual([["--continue"]]);
+    expect(await readCopilotState(options)).toEqual({ version: 1, modelId: MODEL.id, wireApi: "completions" });
+  });
+
+  test("cancellation in switch returns 0, does not launch, and preserves existing state byte-for-byte", async () => {
+    const options = await fixture();
+    const statePath = resolveCopilotStatePath(options);
+    await writeCopilotState(createCopilotState("previous-model", "completions"), options);
+    const beforeBytes = await readFile(statePath, "utf8");
+    let launchCalled = false;
+
+    await expect(runCopilotCLI(["switch"], {
+      ...options,
+      picker: async () => undefined,
+      launch: async () => {
+        launchCalled = true;
+        return 0;
+      },
+      stdout: () => undefined,
+    })).resolves.toBe(0);
+
+    expect(launchCalled).toBe(false);
+    const afterBytes = await readFile(statePath, "utf8");
+    expect(afterBytes).toBe(beforeBytes);
+    expect(await readCopilotState(options)).toEqual({ version: 1, modelId: "previous-model", wireApi: "completions" });
+  });
+
+  test("cancellation in switch with no prior state does not create a state file and does not launch", async () => {
+    const options = await fixture();
+    const statePath = resolveCopilotStatePath(options);
+    let launchCalled = false;
+
+    await expect(runCopilotCLI(["switch"], {
+      ...options,
+      picker: async () => undefined,
+      launch: async () => {
+        launchCalled = true;
+        return 0;
+      },
+      stdout: () => undefined,
+    })).resolves.toBe(0);
+
+    expect(launchCalled).toBe(false);
+    expect(await readCopilotState(options)).toBeUndefined();
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(statePath)).toBe(false);
+  });
+
+  test("rejects invalid switch arguments, positional args, and passthrough without writing state or launching", async () => {
+    const options = await fixture();
+    const invalidInvocations = [
+      ["switch", "--invalid"],
+      ["switch", "positional"],
+      ["switch", "--"],
+      ["switch", "--", "--continue"],
+      ["switch", "--wire-api=invalid"],
+      ["switch", "--wire-api=responses", "extra"],
+      ["switch", "--wire-api=responses", "--wire-api=completions"],
+    ];
+
+    for (const invocation of invalidInvocations) {
+      const errors: string[] = [];
+      let launchCalled = false;
+      let pickerCalled = false;
+
+      await expect(runCopilotCLI(invocation, {
+        ...options,
+        picker: async () => {
+          pickerCalled = true;
+          return MODEL;
+        },
+        launch: async () => {
+          launchCalled = true;
+          return 0;
+        },
+        stderr: (line) => errors.push(line),
+      })).resolves.toBe(1);
+
+      expect(pickerCalled).toBe(false);
+      expect(launchCalled).toBe(false);
+      expect(await readCopilotState(options)).toBeUndefined();
+      expect(errors.some((e) =>
+        e.includes("Usage: pi-kit-copilot switch [--wire-api=responses|completions]") ||
+        e.includes("--wire-api must be responses or completions")
+      )).toBe(true);
+    }
+  });
+
+  test("displays help message including switch command", async () => {
+    const output: string[] = [];
+    await expect(runCopilotCLI(["--help"], { stdout: (line) => output.push(line) })).resolves.toBe(0);
+    const text = output.join("\n");
+    expect(text).toContain("switch [--wire-api=...]");
+  });
 });

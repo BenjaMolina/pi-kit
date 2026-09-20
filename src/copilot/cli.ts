@@ -27,6 +27,7 @@ const HELP = [
   "Commands:",
   "  models                  List models currently discovered from CLIProxyAPI.",
   "  pick [--wire-api=...]   Interactively search, select, and persist a preferred model.",
+  "  switch [--wire-api=...] Interactively select a model and resume Copilot with --continue.",
   "  use <model-id>          Validate and persist the preferred dynamic model selection.",
   "  status                  Report the local non-secret model selection.",
   "  launch [--pick] [--wire-api=...] [-- <args...>]",
@@ -59,29 +60,15 @@ export async function runCopilotCLI(args: string[], options: CopilotCLIOptions =
       return 0;
     }
     if (command === "pick") {
-      let wireApi: "responses" | "completions" = "responses";
-      if (args.length === 2) {
-        if (!args[1].startsWith("--wire-api=")) {
-          throw new Error("Usage: pi-kit-copilot pick [--wire-api=responses|completions]");
-        }
-        const api = args[1].slice("--wire-api=".length);
-        if (api !== "responses" && api !== "completions") {
-          throw new Error("--wire-api must be responses or completions");
-        }
-        wireApi = api;
-      } else if (args.length > 2) {
-        throw new Error("Usage: pi-kit-copilot pick [--wire-api=responses|completions]");
-      }
-
-      const models = await listCopilotModels(options);
-      const pickerFn = options.picker ?? selectCopilotModel;
-      const selected = await pickerFn(models, { terminal: options.terminal });
-      if (!selected) return 0;
-
-      const path = await writeCopilotState(createCopilotState(selected.id, wireApi), options);
-      stdout(`Selected Copilot model: ${selected.id}`);
-      stdout(`State: ${path}`);
+      const wireApi = parseWireApiOption(args, "Usage: pi-kit-copilot pick [--wire-api=responses|completions]");
+      await selectAndPersistCopilotModel(wireApi, options, stdout);
       return 0;
+    }
+    if (command === "switch") {
+      const wireApi = parseWireApiOption(args, "Usage: pi-kit-copilot switch [--wire-api=responses|completions]");
+      const selected = await selectAndPersistCopilotModel(wireApi, options, stdout);
+      if (!selected) return 0;
+      return await (options.launch ?? launchCopilot)(["--continue"], options);
     }
     if (command === "use") {
       const modelId = args[1];
@@ -139,14 +126,8 @@ export async function runCopilotCLI(args: string[], options: CopilotCLIOptions =
       }
 
       if (pick) {
-        const models = await listCopilotModels(options);
-        const pickerFn = options.picker ?? selectCopilotModel;
-        const selected = await pickerFn(models, { terminal: options.terminal });
+        const selected = await selectAndPersistCopilotModel(wireApi, options, stdout);
         if (!selected) return 0;
-
-        const path = await writeCopilotState(createCopilotState(selected.id, wireApi), options);
-        stdout(`Selected Copilot model: ${selected.id}`);
-        stdout(`State: ${path}`);
       }
 
       return await (options.launch ?? launchCopilot)(launchArgs, options);
@@ -242,6 +223,37 @@ export async function doctorCopilot(options: CopilotCLIOptions = {}): Promise<Re
     vscodeSecret: vscode.secretStatus ?? "not installed",
     vscodeModels: String(vscode.modelCount),
   };
+}
+
+function parseWireApiOption(args: string[], usage: string): "responses" | "completions" {
+  if (args.length === 1) return "responses";
+  if (args.length === 2) {
+    if (!args[1].startsWith("--wire-api=")) {
+      throw new Error(usage);
+    }
+    const api = args[1].slice("--wire-api=".length);
+    if (api !== "responses" && api !== "completions") {
+      throw new Error("--wire-api must be responses or completions");
+    }
+    return api;
+  }
+  throw new Error(usage);
+}
+
+async function selectAndPersistCopilotModel(
+  wireApi: "responses" | "completions",
+  options: CopilotCLIOptions,
+  stdout: (line: string) => void,
+): Promise<boolean> {
+  const models = await listCopilotModels(options);
+  const pickerFn = options.picker ?? selectCopilotModel;
+  const selected = await pickerFn(models, { terminal: options.terminal });
+  if (!selected) return false;
+
+  const path = await writeCopilotState(createCopilotState(selected.id, wireApi), options);
+  stdout(`Selected Copilot model: ${selected.id}`);
+  stdout(`State: ${path}`);
+  return true;
 }
 
 function safeBaseUrl(value: string): string {
