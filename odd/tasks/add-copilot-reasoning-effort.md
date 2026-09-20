@@ -19,8 +19,8 @@ Allow `pi-kit-copilot` users to select and persist the reasoning effort advertis
 
 - [x] **T1 — Preserve authoritative reasoning metadata**: retain enriched default reasoning effort, distinguish authoritative level metadata from fallback heuristics, and cover discovery normalization. Evidence: focused tests 6/6 and full suite 131/131 passed; independent verification found no remaining issues. Commit: `857e3178b115f5daaca43680449d263d42d89a78`.
 - [x] **T2 — Select and persist model-specific effort**: add the second interactive picker, optional backward-compatible state field, non-interactive `use` option, status output, cancellation semantics, and focused tests. Evidence: focused tests 108/108 and full suite 179/179 passed; independent verification found no remaining issues. Commits: `84b08f49b6f3f9552baba994b925cd05dc58983b`, `0b8598dcf4d26d2864a48467370d70ff779a1964`.
-- [x] **T3 — Apply effort at launch and resume**: revalidate persisted effort against fresh model metadata, append `--reasoning-effort=<level>` without overriding explicit native arguments, and cover launch/resume behavior. Evidence: focused tests 78/78 and full suite 196/196 passed; Copilot CLI 1.0.86 help confirms `--reasoning-effort`; independent verification found no remaining issues. Commit: pending.
-- [ ] **T4 — Document and verify the feature**: update user documentation; run focused tests, full tests, release-manifest/pack checks where applicable, runtime help verification, and diff hygiene.
+- [x] **T3 — Apply effort at launch and resume**: revalidate persisted effort against fresh model metadata, append `--reasoning-effort=<level>` without overriding explicit native arguments, and cover launch/resume behavior. Evidence: focused tests 78/78 and full suite 196/196 passed; Copilot CLI 1.0.86 help confirms `--reasoning-effort`; independent verification found no remaining issues. Commit: `83434cbf51b724dd44adb6cb961b6964791aa61c`.
+- [x] **T4 — Document and verify the feature**: update user documentation; run focused tests, full tests, release-manifest/pack checks where applicable, runtime help verification, and diff hygiene. Evidence: 196/196 tests, release manifest, packed consumers, npm pack dry-run, runtime help, and diff hygiene passed; independent final verification found no issues. Commit: pending.
 
 ## Delivery strategy
 
@@ -43,3 +43,10 @@ One feature branch with one work-unit commit per completed task. Monitor authore
 - T3 full suite: `bun test` — 196 passed, 0 failed.
 - T3 runtime harness: `copilot --version` reports 1.0.86; `copilot --help` confirms `--reasoning-effort <level>` and does not advertise `--effort`.
 - T3 rollback boundary: `src/copilot/launcher.ts` and the T3 additions in `tests/copilot-cli.test.ts`.
+- T4 documentation explains model-specific authoritative effort choices, optional non-secret state, non-interactive selection, launch/resume revalidation, explicit override precedence, and fail-fast stale metadata handling.
+- T4 final suite: `bun test` — 196 passed, 0 failed.
+- T4 release checks: `npm run test:release-manifest`, `npm run test:pack`, and `npm pack --dry-run` all passed.
+- T4 runtime evidence: local GitHub Copilot CLI 1.0.86 advertises `--reasoning-effort <level>`; no provider call was made.
+- T4 diff hygiene: `git diff --check` passed with only the repository's Windows LF→CRLF warning for this ODD document.
+- Independent final verification reported no findings. Live provider end-to-end execution was intentionally not run.
+- Review workload: branch implementation is over 400 changed lines; preserve the existing work-unit commit boundaries and use chained PR slices if delivering for external review.
