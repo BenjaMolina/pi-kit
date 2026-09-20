@@ -28,6 +28,7 @@ export type CopilotLaunchPlan = {
   env: NodeJS.ProcessEnv;
   model: CLIProxyModel;
   catalogModelId?: string;
+  reasoningEffort?: string;
 };
 
 export function copilotCatalogModelId(modelId: string): string | undefined {
@@ -39,23 +40,105 @@ export function copilotCatalogModelId(modelId: string): string | undefined {
 }
 
 export function isCopilotResumeInvocation(args: string[]): boolean {
-  return args.some((arg) => arg === "--continue" || arg === "--resume" || arg.startsWith("--resume="));
+  const terminatorIndex = args.indexOf("--");
+  const options = terminatorIndex === -1 ? args : args.slice(0, terminatorIndex);
+  return options.some((arg) => arg === "--continue" || arg === "--resume" || arg.startsWith("--resume="));
 }
 
 export function hasCopilotExplicitModelOverride(args: string[]): boolean {
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--model" && i + 1 < args.length) return true;
-    if (arg.startsWith("--model=")) return true;
+  const terminatorIndex = args.indexOf("--");
+  const options = terminatorIndex === -1 ? args : args.slice(0, terminatorIndex);
+
+  for (let i = 0; i < options.length; i++) {
+    const arg = options[i];
+    if (arg.startsWith("--model=")) {
+      if (arg.slice("--model=".length).trim() !== "") return true;
+    } else if (arg === "--model") {
+      const next = options[i + 1];
+      if (next !== undefined && next.trim() !== "" && !next.startsWith("-")) return true;
+    }
   }
   return false;
 }
 
-export function normalizeCopilotLaunchArgs(args: string[], catalogModelId?: string): string[] {
-  if (!catalogModelId || !isCopilotResumeInvocation(args) || hasCopilotExplicitModelOverride(args)) {
+export function hasCopilotExplicitReasoningEffortOverride(args: string[]): boolean {
+  const terminatorIndex = args.indexOf("--");
+  const options = terminatorIndex === -1 ? args : args.slice(0, terminatorIndex);
+
+  for (let i = 0; i < options.length; i++) {
+    const arg = options[i];
+    if (arg.startsWith("--reasoning-effort=")) {
+      if (arg.slice("--reasoning-effort=".length).trim() !== "") return true;
+    } else if (arg === "--reasoning-effort") {
+      const next = options[i + 1];
+      if (next !== undefined && next.trim() !== "" && !next.startsWith("-")) return true;
+    }
+  }
+  return false;
+}
+
+export function reconcileReasoningEffort(
+  storedEffort: string,
+  model: CLIProxyModel,
+): string {
+  if (model.reasoningLevelsAuthoritative !== true || !model.reasoningLevels || model.reasoningLevels.length === 0) {
+    throw new Error(`Selected Copilot model does not support authoritative reasoning effort: ${model.id}`);
+  }
+
+  const trimmed = storedEffort.trim();
+  if (!trimmed) {
+    throw new Error(`Invalid persisted reasoning effort for model ${model.id}`);
+  }
+
+  const exact = model.reasoningLevels.find((level) => level === trimmed);
+  if (exact !== undefined) {
+    return exact;
+  }
+
+  const lower = trimmed.toLowerCase();
+  const ciMatches = model.reasoningLevels.filter((level) => level.toLowerCase() === lower);
+  if (ciMatches.length === 1) {
+    return ciMatches[0];
+  }
+  if (ciMatches.length > 1) {
+    throw new Error(
+      `Persisted reasoning effort "${storedEffort}" is ambiguous for model ${model.id}. Advertised levels: ${model.reasoningLevels.join(", ")}`,
+    );
+  }
+
+  throw new Error(
+    `Persisted reasoning effort "${storedEffort}" is not supported by model ${model.id}. Advertised levels: ${model.reasoningLevels.join(", ")}`,
+  );
+}
+
+export function normalizeCopilotLaunchArgs(
+  args: string[],
+  catalogModelId?: string,
+  reasoningEffort?: string,
+): string[] {
+  const shouldAppendModel = Boolean(
+    catalogModelId && isCopilotResumeInvocation(args) && !hasCopilotExplicitModelOverride(args),
+  );
+  const shouldAppendEffort = Boolean(
+    reasoningEffort && !hasCopilotExplicitReasoningEffortOverride(args),
+  );
+
+  if (!shouldAppendModel && !shouldAppendEffort) {
     return args;
   }
-  return [...args, `--model=${catalogModelId}`];
+
+  const terminatorIndex = args.indexOf("--");
+  const optionsBefore = terminatorIndex === -1 ? args : args.slice(0, terminatorIndex);
+  const terminatorAndRest = terminatorIndex === -1 ? [] : args.slice(terminatorIndex);
+
+  const normalized = [...optionsBefore];
+  if (shouldAppendModel) {
+    normalized.push(`--model=${catalogModelId}`);
+  }
+  if (shouldAppendEffort) {
+    normalized.push(`--reasoning-effort=${reasoningEffort}`);
+  }
+  return [...normalized, ...terminatorAndRest];
 }
 
 export async function listCopilotModels(options: CopilotLauncherOptions = {}): Promise<CLIProxyModel[]> {
@@ -77,6 +160,11 @@ export async function createCopilotLaunchPlan(args: string[], options: CopilotLa
   const model = models.find((candidate) => candidate.id === selection.modelId);
   if (!model) throw new Error(`Selected Copilot model is not available from CLIProxyAPI: ${selection.modelId}`);
 
+  let reasoningEffort: string | undefined;
+  if (selection.reasoningEffort !== undefined) {
+    reasoningEffort = reconcileReasoningEffort(selection.reasoningEffort, model);
+  }
+
   const executable = options.findExecutable
     ? options.findExecutable(env)
     : resolveCopilotExecutable(env, options);
@@ -86,9 +174,10 @@ export async function createCopilotLaunchPlan(args: string[], options: CopilotLa
 
   return {
     executable,
-    args: normalizeCopilotLaunchArgs(args, catalogModelId),
+    args: normalizeCopilotLaunchArgs(args, catalogModelId, reasoningEffort),
     model,
     catalogModelId,
+    reasoningEffort,
     env: buildCopilotEnvironment(env, model, selection.wireApi),
   };
 }

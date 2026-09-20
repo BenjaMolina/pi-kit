@@ -8,6 +8,12 @@ import {
   buildCopilotEnvironment,
   copilotCatalogModelId,
   createCopilotLaunchPlan,
+  hasCopilotExplicitModelOverride,
+  hasCopilotExplicitReasoningEffortOverride,
+  isCopilotResumeInvocation,
+  launchCopilot,
+  normalizeCopilotLaunchArgs,
+  reconcileReasoningEffort,
   resolveCopilotExecutable,
   type CopilotExecutable,
 } from "../src/copilot/launcher";
@@ -950,5 +956,523 @@ describe("pi-kit-copilot reasoning effort CLI workflows", () => {
     expect(fullOutput).not.toContain("ignored");
     const stateContent = await readFile(resolveCopilotStatePath(options), "utf8");
     expect(stateContent).not.toContain(SECRET);
+  });
+});
+
+describe("pi-kit-copilot BYOK launcher reasoning effort handling", () => {
+  const executable: CopilotExecutable = { command: "/test/bin/copilot", source: "PATH" };
+
+  test("appends reasoning effort to ordinary new launches when persisted in state", async () => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    await writeCopilotState(createCopilotState(REASONING_MODEL.id, "responses", "Medium"), options);
+    const launcherOpts = { ...options, findExecutable: () => executable };
+
+    const plan1 = await createCopilotLaunchPlan(["--allow-all-tools", "hello"], launcherOpts);
+    expect(plan1.args).toEqual(["--allow-all-tools", "hello", "--reasoning-effort=Medium"]);
+    expect(plan1.reasoningEffort).toBe("Medium");
+    expect(plan1.env.COPILOT_PROVIDER_WIRE_MODEL).toBe(REASONING_MODEL.id);
+
+    const plan2 = await createCopilotLaunchPlan([], launcherOpts);
+    expect(plan2.args).toEqual(["--reasoning-effort=Medium"]);
+    expect(plan2.reasoningEffort).toBe("Medium");
+  });
+
+  test("appends both catalog model override and reasoning effort to all resume forms", async () => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    await writeCopilotState(createCopilotState(REASONING_MODEL.id, "responses", "Medium"), options);
+    const launcherOpts = { ...options, findExecutable: () => executable };
+
+    const continuePlan = await createCopilotLaunchPlan(["--continue"], launcherOpts);
+    expect(continuePlan.args).toEqual(["--continue", "--model=claude-sonnet-4", "--reasoning-effort=Medium"]);
+    expect(continuePlan.reasoningEffort).toBe("Medium");
+
+    const resumePlan = await createCopilotLaunchPlan(["--resume"], launcherOpts);
+    expect(resumePlan.args).toEqual(["--resume", "--model=claude-sonnet-4", "--reasoning-effort=Medium"]);
+    expect(resumePlan.reasoningEffort).toBe("Medium");
+
+    const resumeIdPlan = await createCopilotLaunchPlan(["--resume=sess-456"], launcherOpts);
+    expect(resumeIdPlan.args).toEqual(["--resume=sess-456", "--model=claude-sonnet-4", "--reasoning-effort=Medium"]);
+    expect(resumeIdPlan.reasoningEffort).toBe("Medium");
+
+    const multiArgPlan = await createCopilotLaunchPlan(["--allow-all-tools", "--continue"], launcherOpts);
+    expect(multiArgPlan.args).toEqual(["--allow-all-tools", "--continue", "--model=claude-sonnet-4", "--reasoning-effort=Medium"]);
+    expect(multiArgPlan.reasoningEffort).toBe("Medium");
+  });
+
+  test("respects model and reasoning effort overrides independently", async () => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    await writeCopilotState(createCopilotState(REASONING_MODEL.id, "responses", "Medium"), options);
+    const launcherOpts = { ...options, findExecutable: () => executable };
+
+    // Explicit model override, default reasoning effort
+    const explicitModelValPlan = await createCopilotLaunchPlan(["--continue", "--model", "custom-model"], launcherOpts);
+    expect(explicitModelValPlan.args).toEqual(["--continue", "--model", "custom-model", "--reasoning-effort=Medium"]);
+
+    const explicitModelEqPlan = await createCopilotLaunchPlan(["--continue", "--model=custom-model"], launcherOpts);
+    expect(explicitModelEqPlan.args).toEqual(["--continue", "--model=custom-model", "--reasoning-effort=Medium"]);
+
+    const resumeIdExplicitModelPlan = await createCopilotLaunchPlan(["--resume=sess-456", "--model=custom-model"], launcherOpts);
+    expect(resumeIdExplicitModelPlan.args).toEqual(["--resume=sess-456", "--model=custom-model", "--reasoning-effort=Medium"]);
+
+    // Explicit reasoning effort override, default model override
+    const explicitEffortValPlan = await createCopilotLaunchPlan(["--continue", "--reasoning-effort", "low"], launcherOpts);
+    expect(explicitEffortValPlan.args).toEqual(["--continue", "--reasoning-effort", "low", "--model=claude-sonnet-4"]);
+
+    const explicitEffortEqPlan = await createCopilotLaunchPlan(["--continue", "--reasoning-effort=low"], launcherOpts);
+    expect(explicitEffortEqPlan.args).toEqual(["--continue", "--reasoning-effort=low", "--model=claude-sonnet-4"]);
+
+    const resumeIdExplicitEffortPlan = await createCopilotLaunchPlan(["--resume=sess-456", "--reasoning-effort=low"], launcherOpts);
+    expect(resumeIdExplicitEffortPlan.args).toEqual(["--resume=sess-456", "--reasoning-effort=low", "--model=claude-sonnet-4"]);
+
+    // Both explicit overrides present on resume
+    const bothExplicitPlan = await createCopilotLaunchPlan(
+      ["--continue", "--model=custom-model", "--reasoning-effort=low"],
+      launcherOpts,
+    );
+    expect(bothExplicitPlan.args).toEqual(["--continue", "--model=custom-model", "--reasoning-effort=low"]);
+
+    // Ordinary launch with explicit reasoning effort override
+    const ordinaryExplicitValPlan = await createCopilotLaunchPlan(
+      ["--allow-all-tools", "--reasoning-effort", "low", "hello"],
+      launcherOpts,
+    );
+    expect(ordinaryExplicitValPlan.args).toEqual(["--allow-all-tools", "--reasoning-effort", "low", "hello"]);
+
+    const ordinaryExplicitEqPlan = await createCopilotLaunchPlan(
+      ["--allow-all-tools", "--reasoning-effort=low", "hello"],
+      launcherOpts,
+    );
+    expect(ordinaryExplicitEqPlan.args).toEqual(["--allow-all-tools", "--reasoning-effort=low", "hello"]);
+  });
+
+  test("reconciles case-insensitively when unique and emits provider-advertised spelling", async () => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    const launcherOpts = { ...options, findExecutable: () => executable };
+
+    // "medium" -> "Medium"
+    await writeCopilotState(createCopilotState(REASONING_MODEL.id, "responses", "medium"), options);
+    const plan1 = await createCopilotLaunchPlan(["--continue"], launcherOpts);
+    expect(plan1.args).toEqual(["--continue", "--model=claude-sonnet-4", "--reasoning-effort=Medium"]);
+    expect(plan1.reasoningEffort).toBe("Medium");
+
+    // "low" -> "LOW"
+    await writeCopilotState(createCopilotState(REASONING_MODEL.id, "responses", "low"), options);
+    const plan2 = await createCopilotLaunchPlan(["--allow-all-tools"], launcherOpts);
+    expect(plan2.args).toEqual(["--allow-all-tools", "--reasoning-effort=LOW"]);
+    expect(plan2.reasoningEffort).toBe("LOW");
+
+    // "budget-4k" -> "Budget-4K" (model with no catalog model ID)
+    await writeCopilotState(createCopilotState(CUSTOM_MODEL.id, "responses", "budget-4k"), options);
+    const plan3 = await createCopilotLaunchPlan(["--continue"], launcherOpts);
+    expect(plan3.args).toEqual(["--continue", "--reasoning-effort=Budget-4K"]);
+    expect(plan3.reasoningEffort).toBe("Budget-4K");
+    expect(plan3.catalogModelId).toBeUndefined();
+  });
+
+  test("rejects stale or unsupported reasoning effort with an actionable error before spawn", async () => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    await writeCopilotState(createCopilotState(REASONING_MODEL.id, "responses", "extreme"), options);
+
+    await expect(createCopilotLaunchPlan(["--continue"], { ...options, findExecutable: () => executable }))
+      .rejects.toThrow('Persisted reasoning effort "extreme" is not supported by model anthropic/claude-3-7-sonnet. Advertised levels: LOW, Medium, high');
+  });
+
+  test("rejects ambiguous case-insensitive reasoning effort with an actionable error before spawn", async () => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    await writeCopilotState(createCopilotState(AMBIGUOUS_MODEL.id, "responses", "Low"), options);
+
+    await expect(createCopilotLaunchPlan(["--continue"], { ...options, findExecutable: () => executable }))
+      .rejects.toThrow('Persisted reasoning effort "Low" is ambiguous for model team/ambiguous-thinker. Advertised levels: low, LOW');
+  });
+
+  test("rejects non-authoritative model metadata with an actionable error before spawn", async () => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    await writeCopilotState(createCopilotState(HEURISTIC_MODEL.id, "responses", "high"), options);
+
+    await expect(createCopilotLaunchPlan(["--continue"], { ...options, findExecutable: () => executable }))
+      .rejects.toThrow("Selected Copilot model does not support authoritative reasoning effort: google/gemini-fallback");
+  });
+
+  test("rejects empty-authority model metadata with an actionable error before spawn", async () => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    await writeCopilotState(createCopilotState(MODEL.id, "responses", "high"), options);
+
+    await expect(createCopilotLaunchPlan(["--continue"], { ...options, findExecutable: () => executable }))
+      .rejects.toThrow("Selected Copilot model does not support authoritative reasoning effort: team/claude-opus-4.6");
+  });
+
+  test("leaves arguments and plan effort undefined for legacy state without reasoning effort", async () => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    await writeCopilotState(createCopilotState(REASONING_MODEL.id, "responses"), options);
+    const launcherOpts = { ...options, findExecutable: () => executable };
+
+    const ordinaryPlan = await createCopilotLaunchPlan(["--allow-all-tools", "hello"], launcherOpts);
+    expect(ordinaryPlan.args).toEqual(["--allow-all-tools", "hello"]);
+    expect(ordinaryPlan.reasoningEffort).toBeUndefined();
+
+    const resumePlan = await createCopilotLaunchPlan(["--continue"], launcherOpts);
+    expect(resumePlan.args).toEqual(["--continue", "--model=claude-sonnet-4"]);
+    expect(resumePlan.reasoningEffort).toBeUndefined();
+  });
+
+  test("does not spawn Copilot CLI when reasoning effort validation fails", async () => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    await writeCopilotState(createCopilotState(REASONING_MODEL.id, "responses", "invalid-level"), options);
+
+    let spawnCalled = false;
+    const mockSpawn = () => {
+      spawnCalled = true;
+      return {} as any;
+    };
+
+    await expect(
+      launchCopilot(["--continue"], {
+        ...options,
+        findExecutable: () => executable,
+        spawn: mockSpawn as any,
+      }),
+    ).rejects.toThrow('Persisted reasoning effort "invalid-level" is not supported by model anthropic/claude-3-7-sonnet');
+
+    expect(spawnCalled).toBe(false);
+  });
+
+  test("hasCopilotExplicitReasoningEffortOverride recognizes confirmed forms and ignores non-confirmed aliases", () => {
+    expect(hasCopilotExplicitReasoningEffortOverride(["--reasoning-effort", "low"])).toBe(true);
+    expect(hasCopilotExplicitReasoningEffortOverride(["--reasoning-effort=low"])).toBe(true);
+    expect(hasCopilotExplicitReasoningEffortOverride(["--other", "--reasoning-effort", "high"])).toBe(true);
+    expect(hasCopilotExplicitReasoningEffortOverride(["--reasoning-effort"])).toBe(false);
+    expect(hasCopilotExplicitReasoningEffortOverride(["--effort", "low"])).toBe(false);
+    expect(hasCopilotExplicitReasoningEffortOverride(["--effort=low"])).toBe(false);
+    expect(hasCopilotExplicitReasoningEffortOverride(["--model", "custom"])).toBe(false);
+  });
+
+  test("hardened override detection ignores malformed forms and tokens after terminator", () => {
+    // Empty equals forms are malformed and not valid overrides
+    expect(hasCopilotExplicitReasoningEffortOverride(["--reasoning-effort="])).toBe(false);
+    expect(hasCopilotExplicitReasoningEffortOverride(["--reasoning-effort=   "])).toBe(false);
+    expect(hasCopilotExplicitModelOverride(["--model="])).toBe(false);
+    expect(hasCopilotExplicitModelOverride(["--model=   "])).toBe(false);
+
+    // Separate forms followed by another option or empty token are malformed
+    expect(hasCopilotExplicitReasoningEffortOverride(["--reasoning-effort", "--continue"])).toBe(false);
+    expect(hasCopilotExplicitReasoningEffortOverride(["--reasoning-effort", "-p"])).toBe(false);
+    expect(hasCopilotExplicitReasoningEffortOverride(["--reasoning-effort", ""])).toBe(false);
+    expect(hasCopilotExplicitModelOverride(["--model", "--allow-all-tools"])).toBe(false);
+    expect(hasCopilotExplicitModelOverride(["--model", "-p"])).toBe(false);
+    expect(hasCopilotExplicitModelOverride(["--model", ""])).toBe(false);
+
+    // Separate form at end of options before terminator is malformed
+    expect(hasCopilotExplicitReasoningEffortOverride(["--reasoning-effort", "--", "hello"])).toBe(false);
+    expect(hasCopilotExplicitModelOverride(["--model", "--", "hello"])).toBe(false);
+
+    // Valid forms before terminator
+    expect(hasCopilotExplicitReasoningEffortOverride(["--reasoning-effort", "low", "--", "hello"])).toBe(true);
+    expect(hasCopilotExplicitReasoningEffortOverride(["--reasoning-effort=low", "--", "hello"])).toBe(true);
+    expect(hasCopilotExplicitModelOverride(["--model", "custom", "--", "hello"])).toBe(true);
+    expect(hasCopilotExplicitModelOverride(["--model=custom", "--", "hello"])).toBe(true);
+
+    // Tokens after terminator must not count as overrides
+    expect(hasCopilotExplicitReasoningEffortOverride(["--", "--reasoning-effort", "low"])).toBe(false);
+    expect(hasCopilotExplicitReasoningEffortOverride(["--", "--reasoning-effort=low"])).toBe(false);
+    expect(hasCopilotExplicitModelOverride(["--", "--model", "custom"])).toBe(false);
+    expect(hasCopilotExplicitModelOverride(["--", "--model=custom"])).toBe(false);
+
+    // isCopilotResumeInvocation ignores tokens after terminator
+    expect(isCopilotResumeInvocation(["--continue"])).toBe(true);
+    expect(isCopilotResumeInvocation(["--resume"])).toBe(true);
+    expect(isCopilotResumeInvocation(["--resume=sess-123"])).toBe(true);
+    expect(isCopilotResumeInvocation(["--", "--continue"])).toBe(false);
+    expect(isCopilotResumeInvocation(["--", "--resume"])).toBe(false);
+  });
+
+  test("reconcileReasoningEffort handles exact match, unique CI, ambiguous, unsupported, and invalid levels", () => {
+    const model = {
+      id: "test-model",
+      displayName: "Test Model",
+      owner: "CLIProxyAPI",
+      source: "enriched" as const,
+      reasoning: true,
+      reasoningLevels: ["LOW", "Medium", "high"],
+      reasoningLevelsAuthoritative: true,
+      input: ["text"] as const,
+      contextWindow: 128000,
+      maxTokens: 16000,
+    };
+
+    // Exact matches
+    expect(reconcileReasoningEffort("LOW", model)).toBe("LOW");
+    expect(reconcileReasoningEffort("Medium", model)).toBe("Medium");
+    expect(reconcileReasoningEffort("high", model)).toBe("high");
+
+    // Case-insensitive match emitting provider-advertised spelling
+    expect(reconcileReasoningEffort("low", model)).toBe("LOW");
+    expect(reconcileReasoningEffort("medium", model)).toBe("Medium");
+    expect(reconcileReasoningEffort("HIGH", model)).toBe("high");
+
+    // Blank or whitespace-only
+    expect(() => reconcileReasoningEffort("  ", model)).toThrow("Invalid persisted reasoning effort");
+
+    // Unsupported
+    expect(() => reconcileReasoningEffort("ultra", model)).toThrow('Persisted reasoning effort "ultra" is not supported');
+
+    // Ambiguous
+    const ambiguousModel = { ...model, reasoningLevels: ["low", "LOW"] };
+    expect(() => reconcileReasoningEffort("Low", ambiguousModel)).toThrow('Persisted reasoning effort "Low" is ambiguous');
+    // But exact match preferred:
+    expect(reconcileReasoningEffort("low", ambiguousModel)).toBe("low");
+    expect(reconcileReasoningEffort("LOW", ambiguousModel)).toBe("LOW");
+
+    // Non-authoritative
+    const nonAuthModel = { ...model, reasoningLevelsAuthoritative: false };
+    expect(() => reconcileReasoningEffort("Medium", nonAuthModel)).toThrow("does not support authoritative reasoning effort");
+
+    // Empty levels
+    const emptyModel = { ...model, reasoningLevels: [] };
+    expect(() => reconcileReasoningEffort("Medium", emptyModel)).toThrow("does not support authoritative reasoning effort");
+  });
+
+  test("normalizeCopilotLaunchArgs inserts before terminator and preserves all argument order", () => {
+    // Both added before terminator
+    expect(normalizeCopilotLaunchArgs(["--continue", "--", "prompt text"], "claude-sonnet-4", "Medium")).toEqual([
+      "--continue",
+      "--model=claude-sonnet-4",
+      "--reasoning-effort=Medium",
+      "--",
+      "prompt text",
+    ]);
+
+    // Ordinary launch with arguments before and after terminator
+    expect(normalizeCopilotLaunchArgs(["--allow-all-tools", "hello", "--", "fix bug"], "claude-sonnet-4", "Medium")).toEqual([
+      "--allow-all-tools",
+      "hello",
+      "--reasoning-effort=Medium",
+      "--",
+      "fix bug",
+    ]);
+
+    // Tokens after terminator do not count as overrides and are preserved after injected flags
+    expect(
+      normalizeCopilotLaunchArgs(
+        ["--continue", "--", "--model=custom", "--reasoning-effort=low"],
+        "claude-sonnet-4",
+        "Medium",
+      ),
+    ).toEqual([
+      "--continue",
+      "--model=claude-sonnet-4",
+      "--reasoning-effort=Medium",
+      "--",
+      "--model=custom",
+      "--reasoning-effort=low",
+    ]);
+  });
+
+  test("normalizeCopilotLaunchArgs preserves malformed overrides untouched and injects valid flags", () => {
+    // Empty equals forms do not suppress persisted effort or model
+    expect(normalizeCopilotLaunchArgs(["--continue", "--reasoning-effort="], "claude-sonnet-4", "Medium")).toEqual([
+      "--continue",
+      "--reasoning-effort=",
+      "--model=claude-sonnet-4",
+      "--reasoning-effort=Medium",
+    ]);
+
+    expect(normalizeCopilotLaunchArgs(["--continue", "--model="], "claude-sonnet-4", "Medium")).toEqual([
+      "--continue",
+      "--model=",
+      "--model=claude-sonnet-4",
+      "--reasoning-effort=Medium",
+    ]);
+
+    // Malformed separate form followed by another flag
+    expect(
+      normalizeCopilotLaunchArgs(
+        ["--continue", "--reasoning-effort", "--allow-all-tools"],
+        "claude-sonnet-4",
+        "Medium",
+      ),
+    ).toEqual([
+      "--continue",
+      "--reasoning-effort",
+      "--allow-all-tools",
+      "--model=claude-sonnet-4",
+      "--reasoning-effort=Medium",
+    ]);
+
+    expect(
+      normalizeCopilotLaunchArgs(
+        ["--continue", "--model", "--allow-all-tools"],
+        "claude-sonnet-4",
+        "Medium",
+      ),
+    ).toEqual([
+      "--continue",
+      "--model",
+      "--allow-all-tools",
+      "--model=claude-sonnet-4",
+      "--reasoning-effort=Medium",
+    ]);
+
+    // Malformed separate form before terminator
+    expect(
+      normalizeCopilotLaunchArgs(
+        ["--continue", "--reasoning-effort", "--", "prompt"],
+        "claude-sonnet-4",
+        "Medium",
+      ),
+    ).toEqual([
+      "--continue",
+      "--reasoning-effort",
+      "--model=claude-sonnet-4",
+      "--reasoning-effort=Medium",
+      "--",
+      "prompt",
+    ]);
+  });
+
+  test("normalizeCopilotLaunchArgs handles independent valid and malformed override combinations", () => {
+    // Valid model override, malformed effort override -> model respected, effort injected
+    expect(
+      normalizeCopilotLaunchArgs(
+        ["--continue", "--model=custom", "--reasoning-effort="],
+        "claude-sonnet-4",
+        "Medium",
+      ),
+    ).toEqual([
+      "--continue",
+      "--model=custom",
+      "--reasoning-effort=",
+      "--reasoning-effort=Medium",
+    ]);
+
+    // Malformed model override, valid effort override -> model injected, effort respected
+    expect(
+      normalizeCopilotLaunchArgs(
+        ["--continue", "--model=", "--reasoning-effort=low"],
+        "claude-sonnet-4",
+        "Medium",
+      ),
+    ).toEqual([
+      "--continue",
+      "--model=",
+      "--reasoning-effort=low",
+      "--model=claude-sonnet-4",
+    ]);
+
+    // Valid model override, valid effort override with terminator -> neither injected
+    const validWithTerminator = ["--continue", "--model=custom", "--reasoning-effort=low", "--", "prompt"];
+    expect(normalizeCopilotLaunchArgs(validWithTerminator, "claude-sonnet-4", "Medium")).toBe(validWithTerminator);
+
+    // Both added (ordinary launch with no terminator)
+    expect(normalizeCopilotLaunchArgs(["--continue"], "claude-sonnet-4", "Medium")).toEqual([
+      "--continue",
+      "--model=claude-sonnet-4",
+      "--reasoning-effort=Medium",
+    ]);
+
+    // Model only (no effort specified)
+    expect(normalizeCopilotLaunchArgs(["--continue"], "claude-sonnet-4")).toEqual([
+      "--continue",
+      "--model=claude-sonnet-4",
+    ]);
+
+    // Effort only (not a resume invocation)
+    expect(normalizeCopilotLaunchArgs(["hello"], "claude-sonnet-4", "Medium")).toEqual([
+      "hello",
+      "--reasoning-effort=Medium",
+    ]);
+
+    // Effort only (resume invocation with no catalog mapping)
+    expect(normalizeCopilotLaunchArgs(["--continue"], undefined, "Medium")).toEqual([
+      "--continue",
+      "--reasoning-effort=Medium",
+    ]);
+
+    // Explicit model override, effort added
+    expect(normalizeCopilotLaunchArgs(["--continue", "--model=custom"], "claude-sonnet-4", "Medium")).toEqual([
+      "--continue",
+      "--model=custom",
+      "--reasoning-effort=Medium",
+    ]);
+
+    // Explicit effort override, model added
+    expect(normalizeCopilotLaunchArgs(["--continue", "--reasoning-effort=low"], "claude-sonnet-4", "Medium")).toEqual([
+      "--continue",
+      "--reasoning-effort=low",
+      "--model=claude-sonnet-4",
+    ]);
+
+    // Both explicitly overridden
+    const bothExplicit = ["--continue", "--model=custom", "--reasoning-effort=low"];
+    expect(normalizeCopilotLaunchArgs(bothExplicit, "claude-sonnet-4", "Medium")).toBe(bothExplicit);
+
+    // Neither added (ordinary launch without effort)
+    const ordinary = ["--allow-all-tools", "hello"];
+    expect(normalizeCopilotLaunchArgs(ordinary, "claude-sonnet-4")).toBe(ordinary);
+  });
+
+  test("createCopilotLaunchPlan handles terminator insertion and malformed overrides end-to-end", async () => {
+    const options = await fixture();
+    options.fetch = reasoningCatalogFetch();
+    await writeCopilotState(createCopilotState(REASONING_MODEL.id, "responses", "Medium"), options);
+    const launcherOpts = { ...options, findExecutable: () => executable };
+
+    // Terminator insertion preserves arguments after terminator and inserts before --
+    const plan1 = await createCopilotLaunchPlan(["--continue", "--", "inspect", "main.ts"], launcherOpts);
+    expect(plan1.args).toEqual([
+      "--continue",
+      "--model=claude-sonnet-4",
+      "--reasoning-effort=Medium",
+      "--",
+      "inspect",
+      "main.ts",
+    ]);
+
+    // Empty equals form preserves malformed arg and injects valid effort
+    const plan2 = await createCopilotLaunchPlan(["--continue", "--reasoning-effort="], launcherOpts);
+    expect(plan2.args).toEqual([
+      "--continue",
+      "--reasoning-effort=",
+      "--model=claude-sonnet-4",
+      "--reasoning-effort=Medium",
+    ]);
+
+    // Separate form followed by another option preserves malformed arg and injects valid effort
+    const plan3 = await createCopilotLaunchPlan(
+      ["--continue", "--reasoning-effort", "--allow-all-tools", "--", "prompt"],
+      launcherOpts,
+    );
+    expect(plan3.args).toEqual([
+      "--continue",
+      "--reasoning-effort",
+      "--allow-all-tools",
+      "--model=claude-sonnet-4",
+      "--reasoning-effort=Medium",
+      "--",
+      "prompt",
+    ]);
+
+    // Tokens after terminator do not override
+    const plan4 = await createCopilotLaunchPlan(
+      ["--continue", "--", "--reasoning-effort=low", "--model=custom"],
+      launcherOpts,
+    );
+    expect(plan4.args).toEqual([
+      "--continue",
+      "--model=claude-sonnet-4",
+      "--reasoning-effort=Medium",
+      "--",
+      "--reasoning-effort=low",
+      "--model=custom",
+    ]);
   });
 });
