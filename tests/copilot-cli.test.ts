@@ -178,6 +178,108 @@ describe("pi-kit-copilot BYOK launcher", () => {
     expect(plan.env.COPILOT_PROVIDER_WIRE_MODEL).toBe(MODEL.id);
   });
 
+  test("normalizes native resume invocations (--continue, --resume, --resume=<id>) by appending catalog model override", async () => {
+    const options = await fixture();
+    await writeCopilotState(createCopilotState(MODEL.id), options);
+    const executable: CopilotExecutable = { command: "/test/bin/copilot", source: "PATH" };
+    const launcherOpts = { ...options, findExecutable: () => executable };
+
+    const continuePlan = await createCopilotLaunchPlan(["--continue"], launcherOpts);
+    expect(continuePlan.args).toEqual(["--continue", "--model=claude-sonnet-4"]);
+
+    const resumePlan = await createCopilotLaunchPlan(["--resume"], launcherOpts);
+    expect(resumePlan.args).toEqual(["--resume", "--model=claude-sonnet-4"]);
+
+    const resumeIdPlan = await createCopilotLaunchPlan(["--resume=sess-456"], launcherOpts);
+    expect(resumeIdPlan.args).toEqual(["--resume=sess-456", "--model=claude-sonnet-4"]);
+
+    const multiArgPlan = await createCopilotLaunchPlan(["--allow-all-tools", "--continue"], launcherOpts);
+    expect(multiArgPlan.args).toEqual(["--allow-all-tools", "--continue", "--model=claude-sonnet-4"]);
+  });
+
+  test("preserves explicit user model overrides (--model value and --model=value) without duplicating or overriding", async () => {
+    const options = await fixture();
+    await writeCopilotState(createCopilotState(MODEL.id), options);
+    const executable: CopilotExecutable = { command: "/test/bin/copilot", source: "PATH" };
+    const launcherOpts = { ...options, findExecutable: () => executable };
+
+    const explicitValuePlan = await createCopilotLaunchPlan(["--continue", "--model", "custom-model"], launcherOpts);
+    expect(explicitValuePlan.args).toEqual(["--continue", "--model", "custom-model"]);
+
+    const resumeExplicitValuePlan = await createCopilotLaunchPlan(["--resume", "--model", "custom-model"], launcherOpts);
+    expect(resumeExplicitValuePlan.args).toEqual(["--resume", "--model", "custom-model"]);
+
+    const explicitEqualsPlan = await createCopilotLaunchPlan(["--continue", "--model=custom-model"], launcherOpts);
+    expect(explicitEqualsPlan.args).toEqual(["--continue", "--model=custom-model"]);
+
+    const resumeIdExplicitEqualsPlan = await createCopilotLaunchPlan(["--resume=sess-456", "--model=custom-model"], launcherOpts);
+    expect(resumeIdExplicitEqualsPlan.args).toEqual(["--resume=sess-456", "--model=custom-model"]);
+  });
+
+  test("leaves ordinary non-resume launches completely unchanged", async () => {
+    const options = await fixture();
+    await writeCopilotState(createCopilotState(MODEL.id), options);
+    const executable: CopilotExecutable = { command: "/test/bin/copilot", source: "PATH" };
+    const launcherOpts = { ...options, findExecutable: () => executable };
+
+    const plan1 = await createCopilotLaunchPlan(["--allow-all-tools", "hello"], launcherOpts);
+    expect(plan1.args).toEqual(["--allow-all-tools", "hello"]);
+
+    const plan2 = await createCopilotLaunchPlan([], launcherOpts);
+    expect(plan2.args).toEqual([]);
+  });
+
+  test("leaves resume arguments unchanged when model has no Copilot catalog mapping", async () => {
+    const unknownModel = {
+      ...MODEL,
+      id: "custom-local-model",
+      displayName: "Custom Model",
+    };
+    const options = await fixture();
+    options.fetch = catalogFetch([unknownModel]);
+    await writeCopilotState(createCopilotState(unknownModel.id), options);
+    const executable: CopilotExecutable = { command: "/test/bin/copilot", source: "PATH" };
+
+    const plan = await createCopilotLaunchPlan(["--continue"], {
+      ...options,
+      findExecutable: () => executable,
+    });
+    expect(plan.args).toEqual(["--continue"]);
+    expect(plan.catalogModelId).toBeUndefined();
+    expect(plan.env.COPILOT_PROVIDER_WIRE_MODEL).toBe("custom-local-model");
+    expect(plan.env.COPILOT_PROVIDER_MODEL_ID).toBe("custom-local-model");
+    expect(plan.env).not.toHaveProperty("COPILOT_MODEL");
+  });
+
+  test("separates Gemini wire model from native catalog override on resume", async () => {
+    const geminiModel = {
+      id: "google/gemini-2.5-flash",
+      displayName: "Gemini 2.5 Flash",
+      owner: "CLIProxyAPI",
+      source: "enriched" as const,
+      reasoning: false,
+      reasoningLevels: [],
+      input: ["text"] as const,
+      contextWindow: 1_000_000,
+      maxTokens: 64_000,
+    };
+    const options = await fixture();
+    options.fetch = catalogFetch([geminiModel]);
+    await writeCopilotState(createCopilotState(geminiModel.id), options);
+    const executable: CopilotExecutable = { command: "/test/bin/copilot", source: "PATH" };
+
+    const plan = await createCopilotLaunchPlan(["--continue"], {
+      ...options,
+      findExecutable: () => executable,
+    });
+
+    expect(plan.args).toEqual(["--continue", "--model=gemini-2.5-pro"]);
+    expect(plan.catalogModelId).toBe("gemini-2.5-pro");
+    expect(plan.env.COPILOT_PROVIDER_WIRE_MODEL).toBe("google/gemini-2.5-flash");
+    expect(plan.env.COPILOT_PROVIDER_MODEL_ID).toBe("gemini-2.5-pro");
+    expect(plan.env.COPILOT_MODEL).toBe("gemini-2.5-pro");
+  });
+
   test("does not leak credentials through doctor output and marks unavailable selected models", async () => {
     const options = await fixture();
     await writeCopilotState(createCopilotState(MODEL.id), options);
@@ -370,7 +472,7 @@ describe("pi-kit-copilot BYOK launcher", () => {
     expect(errors.some((e) => e.includes("Use -- before Copilot arguments"))).toBe(true);
   });
 
-  test("interactively selects a model, persists state, and resumes Copilot with --continue via switch", async () => {
+  test("interactively selects a model, persists state, and forwards --continue to injected launch seam via switch", async () => {
     const options = await fixture();
     const launchCalls: string[][] = [];
     const output: string[] = [];
@@ -390,12 +492,14 @@ describe("pi-kit-copilot BYOK launcher", () => {
     })).resolves.toBe(17);
 
     expect(pickerCalled).toBe(true);
+    // Injected launch seam receives the requested switch arguments (["--continue"]);
+    // launch-plan construction normalizes subprocess args by appending --model=<catalogModelId>.
     expect(launchCalls).toEqual([["--continue"]]);
     expect(output.join("\n")).toContain(`Selected Copilot model: ${MODEL.id}`);
     expect(await readCopilotState(options)).toEqual({ version: 1, modelId: MODEL.id, wireApi: "responses" });
   });
 
-  test("persists completions wire API and launches with --continue when requested via switch --wire-api=completions", async () => {
+  test("persists completions wire API and forwards --continue to injected launch seam via switch --wire-api=completions", async () => {
     const options = await fixture();
     const launchCalls: string[][] = [];
 
@@ -409,6 +513,7 @@ describe("pi-kit-copilot BYOK launcher", () => {
       stdout: () => undefined,
     })).resolves.toBe(0);
 
+    // Injected launch seam receives ["--continue"] directly; normalization occurs during launch-plan construction
     expect(launchCalls).toEqual([["--continue"]]);
     expect(await readCopilotState(options)).toEqual({ version: 1, modelId: MODEL.id, wireApi: "completions" });
   });

@@ -13,7 +13,7 @@ The existing picker supports changing models before a new launch, but changing m
 ## Scope and decisions
 
 - Reuse the live CLIProxyAPI catalog, existing searchable picker, atomic non-secret state writer, and existing launcher seam.
-- On confirmation, persist the selected model and invoke native Copilot with exactly `--continue`.
+- On confirmation, persist the selected model and resume native Copilot with `--continue` plus the selected conservative Copilot catalog-model override. Live evidence proved `--continue` alone restores the session journal's previous model and overrides the new BYOK selection.
 - Default wire API is `responses`; optional `--wire-api=completions` mirrors `pick`.
 - Cancellation is a successful no-op: no write and no launch.
 - No arbitrary Copilot passthrough arguments. Users needing extra flags retain `launch --pick -- --continue <args...>`.
@@ -26,7 +26,7 @@ The existing picker supports changing models before a new launch, but changing m
 - [x] **T1 — Implement switch command and focused contracts**
   - Add help and strict parser behavior.
   - Extract a small CLI-local selection/persistence helper to avoid a third duplicate flow.
-  - Launch exactly `['--continue']` only after confirmation.
+  - Resume only after confirmation; the launch-plan layer must add `--model=<catalogModelId>` to `--continue`/`--resume` unless the user supplied an explicit native model override.
   - Cover default/completions, exit-code propagation, cancellation with/without state, invalid syntax, and regressions.
   - Route: delegated writer; multi-file write trigger.
   - Edit surfaces: `src/copilot/cli.ts`, `tests/copilot-cli.test.ts`.
@@ -47,7 +47,7 @@ The existing picker supports changing models before a new launch, but changing m
 
 - `switch` dynamically discovers and displays current CLIProxyAPI models.
 - Confirmation atomically persists only model ID and wire API.
-- Launcher receives exactly `--continue`; command propagates its exit code.
+- Switch requests `--continue`, and the launch plan adds the selected catalog-model override while preserving the exact proxy wire model; command propagates the native exit code.
 - Cancellation preserves existing state or absence and never launches.
 - Invalid syntax fails without state/launch side effects.
 - Existing picker and launch workflows remain compatible.
@@ -61,11 +61,17 @@ The existing picker supports changing models before a new launch, but changing m
 - Maintainer account verified with `ADMIN`; atomic label transition confirmed `type:feature`, `status:approved`.
 - Read-only exploration mapped the smallest implementation and exact edit surfaces.
 - Branch created: `feat/copilot-switch-resume`.
-- Bounded writer implemented T1–T2 with a shared CLI-local select/persist helper and strict `switch` parser.
-- Writer verification passed: 25 focused tests, 122 full-suite tests, packed consumers, release-manifest validation, and diff hygiene.
-- Parent spot check: `bun test tests/copilot-cli.test.ts` — 25 passed, 0 failed, 135 expectations; diff hygiene passed.
-- Native assessment was unavailable because the package-local Gentle AI binary is missing after the recent global package alignment; assessment failed closed to an independent verifier, which is in progress. This tooling condition does not alter the candidate code.
+- Initial bounded writer implemented T1–T2 with a shared CLI-local select/persist helper and strict `switch` parser.
+- Initial automated verification passed: 25 focused tests, 122 full-suite tests, packed consumers, release-manifest validation, and diff hygiene.
+- PR #66 opened and CI passed, but live Windows validation reproduced a deterministic resume defect before merge: after switching from Sonnet to Gemini, Copilot restored `claude-sonnet-4` from the native session journal and CLIProxyAPI rejected it with `400 unknown provider for model claude-sonnet-4`.
+- Read-only diagnosis verified that Copilot session journals persist an authoritative selected catalog model. A new BYOK environment alone does not override it. The documented precedence mechanism is an explicit native `--model` argument.
+- Correction scope: centralize resume-model override in `createCopilotLaunchPlan` for `--continue`, `--resume`, and `--resume=<id>`; preserve explicit user `--model`; retain the selected exact CLIProxyAPI ID in `COPILOT_PROVIDER_WIRE_MODEL`.
+- Bounded correction implemented in `src/copilot/launcher.ts` with comprehensive launch-plan tests and README clarification.
+- Correction verification passed: 30 focused tests, 127 full-suite tests, packed consumers, release-manifest validation, and diff hygiene.
+- Parent spot check: `bun test tests/copilot-cli.test.ts` — 30 passed, 0 failed, 155 expectations; diff hygiene passed.
+- Independent verification of the correction is in progress because native assessment remains unavailable due to the missing package-local Gentle AI binary.
+- A separate native auxiliary-model issue involving `gpt-5.4-nano` was observed but is outside Issue #65 and will not broaden this correction.
 
 ## Next step
 
-Reconcile independent verification, commit the work unit, open the approved PR, then perform live Windows switch-and-resume validation before merge.
+Reconcile independent verification, commit and push the correction to PR #66, then repeat the live Sonnet → Gemini session-resume test before merge.
