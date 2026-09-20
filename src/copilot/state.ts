@@ -8,6 +8,7 @@ export type CopilotState = {
   version: 1;
   modelId: string;
   wireApi: CopilotWireApi;
+  reasoningEffort?: string;
 };
 
 export type CopilotStateFileSystem = {
@@ -68,8 +69,17 @@ export async function writeCopilotState(state: CopilotState, options: CopilotSta
   return path;
 }
 
-export function createCopilotState(modelId: string, wireApi: CopilotWireApi = "responses"): CopilotState {
-  const state = { version: 1 as const, modelId: modelId.trim(), wireApi };
+export function createCopilotState(
+  modelId: string,
+  wireApi: CopilotWireApi = "responses",
+  reasoningEffort?: string,
+): CopilotState {
+  const state: CopilotState = {
+    version: 1,
+    modelId: modelId.trim(),
+    wireApi,
+    ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
+  };
   validateState(state, "selection");
   return state;
 }
@@ -90,6 +100,9 @@ function validateState(value: unknown, label: string): asserts value is CopilotS
   const state = value as Partial<CopilotState>;
   if (state.version !== 1 || typeof state.modelId !== "string" || !state.modelId.trim()
     || (state.wireApi !== "responses" && state.wireApi !== "completions")) {
+    throw new Error(`${label} is invalid.`);
+  }
+  if (state.reasoningEffort !== undefined && (typeof state.reasoningEffort !== "string" || !state.reasoningEffort.trim())) {
     throw new Error(`${label} is invalid.`);
   }
 }

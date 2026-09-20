@@ -9,7 +9,13 @@ import {
   runCopilotVersion,
   type CopilotLauncherOptions,
 } from "./launcher";
-import { selectCopilotModel, type CopilotPickerOptions, type CopilotPickerTerminal } from "./picker";
+import {
+  selectCopilotModel,
+  selectCopilotReasoningEffort,
+  type CopilotEffortPickerOptions,
+  type CopilotPickerOptions,
+  type CopilotPickerTerminal,
+} from "./picker";
 import { createCopilotState, readCopilotState, resolveCopilotStatePath, writeCopilotState } from "./state";
 import { syncVSCodeCLIProxyAPI, uninstallVSCodeCLIProxyAPI, vscodeConfigStatus } from "./vscode";
 
@@ -18,6 +24,7 @@ export type CopilotCLIOptions = CopilotLauncherOptions & {
   stderr?: (line: string) => void;
   launch?: (args: string[], options: CopilotLauncherOptions) => Promise<number>;
   picker?: (models: CLIProxyModel[], options: CopilotPickerOptions) => Promise<CLIProxyModel | undefined>;
+  effortPicker?: (levels: string[], options: CopilotEffortPickerOptions) => Promise<string | undefined>;
   terminal?: CopilotPickerTerminal;
 };
 
@@ -28,7 +35,8 @@ const HELP = [
   "  models                  List models currently discovered from CLIProxyAPI.",
   "  pick [--wire-api=...]   Interactively search, select, and persist a preferred model.",
   "  switch [--wire-api=...] Interactively select a model and resume Copilot with --continue.",
-  "  use <model-id>          Validate and persist the preferred dynamic model selection.",
+  "  use <model-id> [--wire-api=...] [--reasoning-effort=...]",
+  "                          Validate and persist the preferred dynamic model selection.",
   "  status                  Report the local non-secret model selection.",
   "  launch [--pick] [--wire-api=...] [-- <args...>]",
   "                          Start Copilot CLI with BYOK environment variables.",
@@ -71,16 +79,35 @@ export async function runCopilotCLI(args: string[], options: CopilotCLIOptions =
       return await (options.launch ?? launchCopilot)(["--continue"], options);
     }
     if (command === "use") {
-      const modelId = args[1];
-      if (!modelId || args.length > 3 || (args.length === 3 && !args[2].startsWith("--wire-api="))) {
-        throw new Error("Usage: pi-kit-copilot use <model-id> [--wire-api=responses|completions]");
-      }
-      const wireApi = args[2]?.slice("--wire-api=".length) ?? "responses";
-      if (wireApi !== "responses" && wireApi !== "completions") throw new Error("--wire-api must be responses or completions");
+      const { modelId, wireApi, rawEffort } = parseUseArgs(args);
       const models = await listCopilotModels(options);
-      if (!models.some((model) => model.id === modelId)) throw new Error(`Model is not currently available from CLIProxyAPI: ${modelId}`);
-      const path = await writeCopilotState(createCopilotState(modelId, wireApi), options);
+      const targetModel = models.find((model) => model.id === modelId);
+      if (!targetModel) throw new Error(`Model is not currently available from CLIProxyAPI: ${modelId}`);
+
+      let matchedEffort: string | undefined;
+      if (rawEffort !== undefined) {
+        if (targetModel.reasoningLevelsAuthoritative !== true || targetModel.reasoningLevels.length === 0) {
+          throw new Error(`Model does not support authoritative reasoning effort: ${modelId}`);
+        }
+        const matchResult = matchReasoningEffort(rawEffort, targetModel.reasoningLevels);
+        if (matchResult.ambiguous) {
+          throw new Error(
+            `Reasoning effort "${rawEffort}" is ambiguous for model ${modelId}. Advertised levels: ${targetModel.reasoningLevels.join(", ")}`,
+          );
+        }
+        if (!matchResult.matched) {
+          throw new Error(
+            `Reasoning effort "${rawEffort}" is not supported for model ${modelId}. Supported levels: ${targetModel.reasoningLevels.join(", ")}`,
+          );
+        }
+        matchedEffort = matchResult.matched;
+      }
+
+      const path = await writeCopilotState(createCopilotState(modelId, wireApi, matchedEffort), options);
       stdout(`Selected Copilot model: ${modelId}`);
+      if (matchedEffort) {
+        stdout(`Reasoning effort: ${matchedEffort}`);
+      }
       stdout(`State: ${path}`);
       return 0;
     }
@@ -90,6 +117,7 @@ export async function runCopilotCLI(args: string[], options: CopilotCLIOptions =
       stdout(`State: ${resolveCopilotStatePath(options)}`);
       stdout(`Selection: ${state?.modelId ?? "none"}`);
       stdout(`Wire API: ${state?.wireApi ?? "responses"}`);
+      stdout(`Reasoning effort: ${state?.reasoningEffort ?? "none"}`);
       return 0;
     }
     if (command === "launch") {
@@ -225,6 +253,87 @@ export async function doctorCopilot(options: CopilotCLIOptions = {}): Promise<Re
   };
 }
 
+export function matchReasoningEffort(
+  rawEffort: string,
+  advertisedLevels: string[],
+): { matched?: string; ambiguous?: boolean } {
+  const trimmed = rawEffort.trim();
+  if (!trimmed) return {};
+
+  const exact = advertisedLevels.find((level) => level === trimmed);
+  if (exact !== undefined) return { matched: exact };
+
+  const lower = trimmed.toLowerCase();
+  const ci = advertisedLevels.filter((l) => l.toLowerCase() === lower);
+  if (ci.length === 1) return { matched: ci[0] };
+  if (ci.length > 1) return { ambiguous: true };
+
+  return {};
+}
+
+function parseUseArgs(args: string[]): {
+  modelId: string;
+  wireApi: "responses" | "completions";
+  rawEffort?: string;
+} {
+  const usage = "Usage: pi-kit-copilot use <model-id> [--wire-api=responses|completions] [--reasoning-effort=<level>]";
+  const tokens = args.slice(1);
+  if (tokens.length === 0) {
+    throw new Error(usage);
+  }
+
+  let modelId: string | undefined;
+  let wireApi: "responses" | "completions" = "responses";
+  let rawEffort: string | undefined;
+  let seenWireApi = false;
+  let seenReasoningEffort = false;
+
+  for (const token of tokens) {
+    if (token === "--wire-api" || (token.startsWith("--wire-api=") && !token.slice("--wire-api=".length).trim())) {
+      throw new Error("--wire-api requires a value");
+    }
+    if (token.startsWith("--wire-api=")) {
+      if (seenWireApi) {
+        throw new Error("Duplicate option: --wire-api");
+      }
+      seenWireApi = true;
+      const api = token.slice("--wire-api=".length).trim();
+      if (api !== "responses" && api !== "completions") {
+        throw new Error("--wire-api must be responses or completions");
+      }
+      wireApi = api;
+      continue;
+    }
+
+    if (token === "--reasoning-effort" || (token.startsWith("--reasoning-effort=") && !token.slice("--reasoning-effort=".length).trim())) {
+      throw new Error("--reasoning-effort requires a value");
+    }
+    if (token.startsWith("--reasoning-effort=")) {
+      if (seenReasoningEffort) {
+        throw new Error("Duplicate option: --reasoning-effort");
+      }
+      seenReasoningEffort = true;
+      rawEffort = token.slice("--reasoning-effort=".length).trim();
+      continue;
+    }
+
+    if (token.startsWith("--")) {
+      throw new Error(`Unknown option: ${token}`);
+    }
+
+    if (modelId !== undefined) {
+      throw new Error(usage);
+    }
+    modelId = token;
+  }
+
+  if (!modelId) {
+    throw new Error(usage);
+  }
+
+  return { modelId, wireApi, rawEffort };
+}
+
 function parseWireApiOption(args: string[], usage: string): "responses" | "completions" {
   if (args.length === 1) return "responses";
   if (args.length === 2) {
@@ -250,8 +359,22 @@ async function selectAndPersistCopilotModel(
   const selected = await pickerFn(models, { terminal: options.terminal });
   if (!selected) return false;
 
-  const path = await writeCopilotState(createCopilotState(selected.id, wireApi), options);
+  let effort: string | undefined;
+  if (selected.reasoningLevelsAuthoritative === true && selected.reasoningLevels.length > 0) {
+    const effortPickerFn = options.effortPicker ?? selectCopilotReasoningEffort;
+    effort = await effortPickerFn(selected.reasoningLevels, {
+      terminal: options.terminal,
+      defaultLevel: selected.defaultReasoningLevel,
+      modelId: selected.id,
+    });
+    if (effort === undefined) return false;
+  }
+
+  const path = await writeCopilotState(createCopilotState(selected.id, wireApi, effort), options);
   stdout(`Selected Copilot model: ${selected.id}`);
+  if (effort) {
+    stdout(`Reasoning effort: ${effort}`);
+  }
   stdout(`State: ${path}`);
   return true;
 }
