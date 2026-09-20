@@ -32,6 +32,8 @@ export type CLIProxyModel = {
   source: "enriched" | "fallback";
   reasoning: boolean;
   reasoningLevels: string[];
+  reasoningLevelsAuthoritative?: boolean;
+  defaultReasoningLevel?: string;
   input: readonly ["text"] | readonly ["text", "image"];
   contextWindow: number;
   maxTokens: number;
@@ -113,9 +115,15 @@ function supportsImages(id: string, capabilities?: FallbackOpenAIModel["capabili
   );
 }
 
+function toDefaultReasoningLevel(model: CPAModel): string | undefined {
+  if (typeof model.default_reasoning_level !== "string") return undefined;
+  const normalized = model.default_reasoning_level.trim().toLowerCase();
+  return normalized || undefined;
+}
+
 function toReasoningLevels(model: CPAModel): string[] {
   return (model.supported_reasoning_levels || [])
-    .map((level) => (typeof level?.effort === "string" ? level.effort.trim().toLowerCase() : ""))
+    .map((level) => (typeof level?.effort === "string" ? level.effort.trim() : ""))
     .filter((effort): effort is string => Boolean(effort));
 }
 
@@ -127,9 +135,11 @@ export function normalizeCPA(model: CPAModel): CLIProxyModel | undefined {
       : "";
   if (!id) return undefined;
 
+  const defaultReasoningLevel = toDefaultReasoningLevel(model);
   const reasoningLevels = toReasoningLevels(model);
+  const reasoningLevelsAuthoritative = reasoningLevels.length > 0;
   const reasoning = reasoningLevels.length > 0
-    || Boolean(model.default_reasoning_level)
+    || Boolean(defaultReasoningLevel)
     || id.toLowerCase().includes("thinking")
     || (model.display_name?.toLowerCase().includes("thinking") ?? false);
 
@@ -140,6 +150,8 @@ export function normalizeCPA(model: CPAModel): CLIProxyModel | undefined {
     source: "enriched",
     reasoning,
     reasoningLevels,
+    reasoningLevelsAuthoritative,
+    ...(defaultReasoningLevel ? { defaultReasoningLevel } : {}),
     input: supportsImages(id, undefined, model.input_modalities) ? ["text", "image"] : ["text"],
     contextWindow: resolveRecommendedContextWindow(id, model.context_window),
     maxTokens: toSafeMaxTokens(model.max_tokens),
@@ -177,6 +189,7 @@ export function normalizeOpenAI(model: FallbackOpenAIModel): CLIProxyModel | und
     source: "fallback",
     reasoning,
     reasoningLevels: reasoning ? ["low", "medium", "high"] : [],
+    reasoningLevelsAuthoritative: false,
     input: supportsImages(id, capabilities) ? ["text", "image"] : ["text"],
     contextWindow: resolveRecommendedContextWindow(id, reportedContext),
     maxTokens: toSafeMaxTokens(model.max_output_tokens),
