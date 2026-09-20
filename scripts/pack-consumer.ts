@@ -277,6 +277,19 @@ async function verifyCopilotConsumer(consumer: string, archivePath: string, regi
   assert(pickOutput.includes("requires an interactive terminal (TTY)"),
     `packaged pi-kit-copilot pick did not report non-TTY refusal:\n${pickOutput}`);
 
+  const switchChild = Bun.spawn([bin, "switch"], { cwd: consumer, env: { ...process.env, ...environment }, stdout: "pipe", stderr: "pipe" });
+  const [switchStdout, switchStderr, switchExitCode] = await Promise.all([
+    new Response(switchChild.stdout).text(),
+    new Response(switchChild.stderr).text(),
+    switchChild.exited,
+  ]);
+  const switchOutput = `${switchStdout}\n${switchStderr}`;
+  assert(switchExitCode === 1, `packaged pi-kit-copilot switch should exit 1 on non-TTY, got ${switchExitCode}:\n${switchOutput}`);
+  assert(switchOutput.includes("requires an interactive terminal (TTY)"),
+    `packaged pi-kit-copilot switch did not report non-TTY refusal:\n${switchOutput}`);
+  assert(!existsSync(join(home, ".config", "pi-kit", "copilot.json")),
+    "packaged pi-kit-copilot switch created state despite non-TTY failure");
+
   const models = await runCommand([bin, "models"], consumer, environment);
   assert(models.includes("mock-cli-proxy-model"), `packaged pi-kit-copilot models did not list the mock model:\n${models}`);
   await runCommand([bin, "use", "mock-cli-proxy-model"], consumer, environment);

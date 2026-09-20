@@ -67,7 +67,7 @@ Codex cannot dynamically register a provider at runtime. According to OpenAI's [
 
 1. Install GitHub Copilot CLI and start CLIProxyAPI.
 2. Set `CLIPROXYAPI_API_KEY`; optionally set `CLIPROXYAPI_BASE_URL` (default: `http://127.0.0.1:8317/v1`).
-3. Interactively select a model with `bun ./bin/pi-kit-copilot.ts pick`, or launch directly with `bun ./bin/pi-kit-copilot.ts launch --pick -- <Copilot arguments...>`.
+3. Interactively select a model with `bun ./bin/pi-kit-copilot.ts pick`, or launch directly with `bun ./bin/pi-kit-copilot.ts launch --pick -- <Copilot arguments...>`. Use `switch` to select a model and resume Copilot with `--continue`.
 4. For scripts and automation, list models with `models` and persist selections with `use <model-id>`, then launch with `launch -- <Copilot arguments...>`.
 
 The packaged command is `pi-kit-copilot`. Its non-secret selection state is stored at `$XDG_CONFIG_HOME/pi-kit/copilot.json` (or the platform config directory); it contains only the preferred model ID and `responses`/`completions` wire API, never an API key. Set `PI_KIT_COPILOT_STATE_PATH` for an explicit state location.
@@ -75,6 +75,7 @@ The packaged command is `pi-kit-copilot`. Its non-secret selection state is stor
 | Command | Purpose |
 | --- | --- |
 | `pi-kit-copilot pick [--wire-api=responses|completions]` | Interactively searches, selects, and persists a CLIProxyAPI model. |
+| `pi-kit-copilot switch [--wire-api=responses|completions]` | Interactively selects a model, persists selection, and resumes Copilot with `--continue` and automatic catalog-model override. |
 | `pi-kit-copilot models` | Dynamically lists the current CLIProxyAPI catalog. No model list is hardcoded. |
 | `pi-kit-copilot use <model-id> [--wire-api=responses|completions]` | Validates a currently discovered model and persists the non-secret selection for automation. |
 | `pi-kit-copilot status` | Reports the offline selection and state path without reading or printing credentials. |
@@ -90,8 +91,9 @@ The packaged command is `pi-kit-copilot`. Its non-secret selection state is stor
 - **Search & ranking**: live case-insensitive fuzzy and subsequence matching across display name, model ID, and owner, with deterministic ranking and tie-breaking.
 - **Navigation & controls**: arrow keys (↑/↓), PageUp/PageDown, Home/End for scrolling through visible models; Enter confirms; Escape or Ctrl+C cancels.
 - **Cancellation**: cancelling the picker is a safe no-op (exit 0) that leaves previous state untouched and does not launch Copilot.
+- **Session switch & resume**: `pi-kit-copilot switch [--wire-api=responses|completions]` prompts to select a model, saves the selection, and immediately resumes Copilot's most recent session using `--continue`. Because native Copilot session journals persist an authoritative catalog model that would otherwise override the new BYOK selection, launch plans for resumed sessions (`--continue`, `--resume`, or `--resume=<value>`) automatically append `--model=<catalogModelId>` when no explicit native `--model` override is present. The exact CLIProxyAPI model ID is always preserved in `COPILOT_PROVIDER_WIRE_MODEL`. Advanced workflows requiring extra native Copilot flags alongside resume should use `pi-kit-copilot launch --pick -- --continue <args...>` (or `--resume=<id> <args...>`), which benefits from the same automatic catalog-model override while preserving your custom flags and explicit model overrides.
 - **Combined launch**: `pi-kit-copilot launch --pick [--wire-api=responses|completions] -- <args...>` prompts for a model first, saves the selection, and immediately launches Copilot with the forwarded arguments. Ordinary `launch -- <args...>` remains deterministic and non-interactive. To pass `--pick` directly to Copilot CLI itself, place it after the separator: `pi-kit-copilot launch -- --pick`.
-- **Automation fallback**: non-TTY environments cleanly refuse `pick` with an actionable message. Use `models` and `use <model-id>` for CI and non-interactive scripting.
+- **Automation fallback**: non-TTY environments cleanly refuse `pick` and `switch` with an actionable message. Use `models` and `use <model-id>` for CI and non-interactive scripting.
 
 ### Why native Copilot `/model` shows GitHub subscription models
 
@@ -105,7 +107,7 @@ Synchronization creates exactly one `pi-kit CLIProxyAPI` provider with the offic
 
 The provider is the managed boundary: all unrelated providers and models remain structural JSON values, but JSON formatting may normalize after synchronization. Existing `${input:...}` credential references are preserved across syncs. Synchronization fails closed on malformed JSON, an unsupported root/providers shape, duplicate pi-kit providers, or an ambiguous pi-kit-named provider. Atomic temporary-file replacement leaves the prior file intact if writing or renaming fails; uninstall removes only the unique managed provider and does not launch or restart VS Code.
 
-`launch` derives `COPILOT_PROVIDER_BEARER_TOKEN` from the process-local `CLIPROXYAPI_API_KEY`; it does not persist or print it. For Copilot CLI 1.0.86, it sets `COPILOT_PROVIDER_TYPE=openai`, the resolved CLIProxyAPI base URL, `COPILOT_PROVIDER_WIRE_API` (default `responses`), the exact `COPILOT_PROVIDER_WIRE_MODEL`, provider model/catalog IDs, `COPILOT_PROVIDER_MAX_OUTPUT_TOKENS` from discovered output metadata, and `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` as the remaining context budget after reserving output tokens. Run `doctor` before launching when connectivity is uncertain.
+`launch` derives `COPILOT_PROVIDER_BEARER_TOKEN` from the process-local `CLIPROXYAPI_API_KEY`; it does not persist or print it. For Copilot CLI 1.0.86, it sets `COPILOT_PROVIDER_TYPE=openai`, the resolved CLIProxyAPI base URL, `COPILOT_PROVIDER_WIRE_API` (default `responses`), the exact `COPILOT_PROVIDER_WIRE_MODEL`, provider model/catalog IDs, `COPILOT_PROVIDER_MAX_OUTPUT_TOKENS` from discovered output metadata, and `COPILOT_PROVIDER_MAX_PROMPT_TOKENS` as the remaining context budget after reserving output tokens. When resuming a session via `--continue`, `--resume`, or `--resume=<value>`, the launch plan automatically appends `--model=<catalogModelId>` to override the session journal's persisted model unless an explicit user `--model` override is provided, ensuring Copilot's internal validation succeeds while routing to the exact proxy wire model. Run `doctor` before launching when connectivity is uncertain.
 
 ## Included resources
 

@@ -38,6 +38,26 @@ export function copilotCatalogModelId(modelId: string): string | undefined {
   return undefined;
 }
 
+export function isCopilotResumeInvocation(args: string[]): boolean {
+  return args.some((arg) => arg === "--continue" || arg === "--resume" || arg.startsWith("--resume="));
+}
+
+export function hasCopilotExplicitModelOverride(args: string[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--model" && i + 1 < args.length) return true;
+    if (arg.startsWith("--model=")) return true;
+  }
+  return false;
+}
+
+export function normalizeCopilotLaunchArgs(args: string[], catalogModelId?: string): string[] {
+  if (!catalogModelId || !isCopilotResumeInvocation(args) || hasCopilotExplicitModelOverride(args)) {
+    return args;
+  }
+  return [...args, `--model=${catalogModelId}`];
+}
+
 export async function listCopilotModels(options: CopilotLauncherOptions = {}): Promise<CLIProxyModel[]> {
   const env = options.env ?? process.env;
   const apiKey = requiredApiKey(env);
@@ -62,11 +82,13 @@ export async function createCopilotLaunchPlan(args: string[], options: CopilotLa
     : resolveCopilotExecutable(env, options);
   if (!executable) throw new Error("GitHub Copilot CLI was not found on PATH or in the WinGet package directory.");
 
+  const catalogModelId = copilotCatalogModelId(model.id);
+
   return {
     executable,
-    args,
+    args: normalizeCopilotLaunchArgs(args, catalogModelId),
     model,
-    catalogModelId: copilotCatalogModelId(model.id),
+    catalogModelId,
     env: buildCopilotEnvironment(env, model, selection.wireApi),
   };
 }
