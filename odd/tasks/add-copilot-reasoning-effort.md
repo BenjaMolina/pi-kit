@@ -24,7 +24,15 @@ Allow `pi-kit-copilot` users to select and persist the reasoning effort advertis
 
 ## Delivery strategy
 
-One feature branch with one work-unit commit per completed task. Monitor authored diff size; split into PR slices if the honest implementation approaches 400 changed lines.
+Stacked PRs to `main`, preserving work-unit boundaries. Merge and retarget in order so each PR shows only its own slice:
+
+1. PR #71 — metadata foundation (`main` ← `feat/copilot-reasoning-metadata`), 194 changed lines.
+2. PR #72 — reusable picker core (base: `feat/copilot-reasoning-metadata`), 275 changed lines.
+3. PR #73 — selection and persistence (base: `refactor/copilot-picker-core`), 509 changed lines with user-authorized `size:exception` because picker, state, CLI workflow, and safety tests are one atomic behavior.
+4. PR #74 — launch and resume application (base: `feat/copilot-reasoning-selection`), 647 changed lines with user-authorized `size:exception` because process-boundary behavior and its complete safety matrix cannot be separated honestly.
+5. PR #75 — documentation and final evidence (base: `feat/copilot-reasoning-launch`), 42 changed lines.
+
+Chain: https://github.com/BenjaMolina/pi-kit/pull/71 → https://github.com/BenjaMolina/pi-kit/pull/72 → https://github.com/BenjaMolina/pi-kit/pull/73 → https://github.com/BenjaMolina/pi-kit/pull/74 → https://github.com/BenjaMolina/pi-kit/pull/75.
 
 ## Evidence
 
