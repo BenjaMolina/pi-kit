@@ -3,8 +3,11 @@ import {
   activateCodexCLIProxyAPI,
   deactivateCodexCLIProxyAPI,
   getCodexCLIProxyAPIStatus,
+  getCodexNineRouterStatus,
   installCodexCLIProxyAPI,
+  installCodexNineRouter,
   uninstallCodexCLIProxyAPI,
+  uninstallCodexNineRouter,
   type CodexConfigOptions,
 } from "./config";
 import {
@@ -33,12 +36,25 @@ const HELP = [
   "  use cliproxyapi  Actively switch to pi-kit's managed CLIProxyAPI selection.",
   "  install      Install the managed CLIProxyAPI Codex configuration blocks.",
   "  uninstall    Remove only the managed CLIProxyAPI Codex configuration blocks.",
+  "  9router install  Install the managed 9Router provider and profile.",
+  "  9router status   Report offline 9Router provider and profile status.",
+  "  9router uninstall Remove only the managed 9Router provider and profile.",
   "  plugin list  List available CLIProxyAPI plugins and installation status.",
   "  plugin status  Report CLIProxyAPI plugins installation status.",
   "  plugin install <id|all> [--build] [--force] [--target <dir>]",
   "               Install verified CLIProxyAPI plugins with hybrid download/build.",
   "  plugin uninstall <id|all> [--target <dir>]",
   "               Remove managed CLIProxyAPI plugin binaries.",
+  "  --help       Show this help message.",
+].join("\n");
+
+const NINEROUTER_HELP = [
+  "Usage: pi-kit-codex 9router <command>",
+  "",
+  "Commands:",
+  "  install      Install the managed 9Router provider and 9router profile.",
+  "  status       Report offline 9Router provider and profile status.",
+  "  uninstall    Remove only the managed 9Router provider and 9router profile.",
   "  --help       Show this help message.",
 ].join("\n");
 
@@ -103,6 +119,9 @@ export async function runCodexCLI(args: string[], options: CodexCLIOptions = {})
       stdout(`Plugins: ${report.plugins}`);
       return 0;
     }
+    if (command === "9router") {
+      return await runNineRouterCommand(args.slice(1), options, stdout);
+    }
     if (command === "plugin") {
       return await runPluginCommand(args.slice(1), options, stdout);
     }
@@ -113,6 +132,53 @@ export async function runCodexCLI(args: string[], options: CodexCLIOptions = {})
     stderr(`pi-kit-codex: ${message}`);
     return 1;
   }
+}
+
+async function runNineRouterCommand(
+  subArgs: string[],
+  options: CodexCLIOptions,
+  stdout: (line: string) => void
+): Promise<number> {
+  const [subCommand] = subArgs;
+  if (!subCommand || subCommand === "--help" || subCommand === "-h" || subCommand === "help") {
+    stdout(NINEROUTER_HELP);
+    return 0;
+  }
+
+  if (subCommand === "install") {
+    if (subArgs.length > 1) throw new Error("install does not accept options");
+    const result = await installCodexNineRouter(options);
+    stdout(
+      result.changed
+        ? `Installed 9Router Codex profile: ${result.profilePath}`
+        : `9Router Codex profile is already installed: ${result.profilePath}`
+    );
+    return 0;
+  }
+
+  if (subCommand === "status") {
+    if (subArgs.length > 1) throw new Error("status does not accept options");
+    const status = await getCodexNineRouterStatus(options);
+    stdout(`Provider: ${status.provider}`);
+    stdout(`Profile: ${status.profile}`);
+    if (status.model) stdout(`Model: ${status.model}`);
+    stdout(`Config: ${status.configPath}`);
+    stdout(`Profile config: ${status.profilePath}`);
+    return 0;
+  }
+
+  if (subCommand === "uninstall") {
+    if (subArgs.length > 1) throw new Error("uninstall does not accept options");
+    const result = await uninstallCodexNineRouter(options);
+    stdout(
+      result.changed
+        ? `Removed managed 9Router Codex profile: ${result.profilePath}`
+        : `No managed 9Router Codex profile found: ${result.profilePath}`
+    );
+    return 0;
+  }
+
+  throw new Error(`Unknown 9router command: ${subCommand}\n\n${NINEROUTER_HELP}`);
 }
 
 async function runPluginCommand(
