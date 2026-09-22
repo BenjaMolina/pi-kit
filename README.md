@@ -31,6 +31,9 @@ According to OpenAI's [Codex configuration documentation](https://developers.ope
 | `pi-kit-codex use cliproxyapi` | Actively replaces root `model` and `model_provider` selections with pi-kit's managed CLIProxyAPI selection, preserving the current model name when present. |
 | `pi-kit-codex install` | Adds the managed CLIProxyAPI provider configuration and, when the user has no model selection, configures the static default `gpt-5.5`, chosen after development and interoperability testing. It does not validate that model against the current proxy. |
 | `pi-kit-codex uninstall` | Removes only the configuration blocks managed by `pi-kit-codex`. |
+| `pi-kit-codex 9router install` | Adds the managed 9Router provider to `config.toml` and creates the managed `$CODEX_HOME/9router.config.toml` profile selecting 9Router and default model `gpt-5.5` without altering root/default Codex selection. |
+| `pi-kit-codex 9router status` | Offline-only report of the 9Router provider and profile registration status without contacting the proxy or reading credentials. |
+| `pi-kit-codex 9router uninstall` | Removes only the managed 9Router provider block from `config.toml` and the managed `9router.config.toml` profile. |
 | `pi-kit-codex plugin list` | Reports available standalone CLIProxyAPI plugins, installation status, and SHA-256 integrity. |
 | `pi-kit-codex plugin install <id|all>` | Installs verified plugin `.so` binaries with checksum validation (hybrid download from GitHub release or local Docker `--build`). |
 | `pi-kit-codex plugin uninstall <id|all>` | Removes installed standalone CLIProxyAPI plugin binaries. |
@@ -56,8 +59,24 @@ Run `pi-kit-codex doctor` before and after installation. A healthy result report
 | `Proxy models: unreachable` | Start CLIProxyAPI and verify `CLIPROXYAPI_BASE_URL`, network reachability, and the client API key. |
 | `API key: missing` | Set `CLIPROXYAPI_API_KEY` in the terminal or user environment, then open a new terminal or refresh the current one. |
 | `model_providers.cliproxyapi already exists without pi-kit markers` | Keep and manage that existing provider yourself, or remove/rename it deliberately before running `install`; pi-kit will not overwrite it. |
+| `model_providers.9router already exists without pi-kit markers` | Keep and manage that existing provider yourself, or remove/rename it deliberately before running `9router install`; pi-kit will not overwrite it. |
+| `9router profile already exists without pi-kit markers` | Manage the existing `$CODEX_HOME/9router.config.toml` profile yourself, or remove/rename it before running `9router install`. |
+| `NINEROUTER_BASE_URL must be an absolute URL` | Set `NINEROUTER_BASE_URL` to a valid absolute URL (e.g. `http://127.0.0.1:20128/v1`). |
 
 Codex cannot dynamically register a provider at runtime. According to OpenAI's [Codex configuration reference](https://developers.openai.com/codex/config-reference/), `model_catalog_json` is loaded at startup; catalog synchronization is outside this MVP. Restart or reload Codex after `install`, either `use` command, or after changing proxy-side model availability. Use `doctor` to check the current proxy's `/models` endpoint separately. `use cliproxyapi` intentionally replaces root model and provider selections; use `install` instead when you only want to register the managed provider without changing an existing selection.
+
+### Codex + 9Router profile
+
+`pi-kit-codex 9router` manages a dedicated profile that lets Codex CLI connect to [9Router](http://127.0.0.1:20128/v1) on demand via `codex -p 9router`:
+
+- **Coexistence:** registers `[model_providers.9router]` in the shared `$CODEX_HOME/config.toml` and creates a separate `$CODEX_HOME/9router.config.toml` layered profile. It leaves root `model` and `model_provider` selections untouched, allowing CLIProxyAPI, native OpenAI, and 9Router to coexist concurrently.
+- **Invocation:** launch Codex with `codex -p 9router` to activate 9Router for that session. Regular `codex` invocations continue to use the default provider.
+- **Environment variables:**
+  - `NINEROUTER_API_KEY`: client API key. Referenced in `config.toml` via `env_key = "NINEROUTER_API_KEY"`; never written to disk or printed.
+  - `NINEROUTER_BASE_URL`: optional base URL, defaulting to `http://127.0.0.1:20128/v1`.
+  - `NINEROUTER_MODEL`: optional default model identifier override used when creating `$CODEX_HOME/9router.config.toml`, defaulting to `gpt-5.5`.
+- **Model overrides:** defaults to `model = "gpt-5.5"`. Override at installation time by setting `NINEROUTER_MODEL`, for a single session using `codex -p 9router -m <model>`, or edit `model = "..."` in `9router.config.toml` directly (pi-kit preserves customized profile models across reinstalls).
+- **Safety and rollback:** fails closed on unmarked collisions (`model_providers.9router` in `config.toml` or pre-existing unmanaged `9router.config.toml`). Sequential file mutations in `install` and `uninstall` restore prior bytes and existence if a later step fails, and atomic file replacements clean up temporary files on failure. `pi-kit-codex 9router uninstall` removes only the pi-kit-managed blocks.
 
 ## Copilot CLI + CLIProxyAPI: dynamic BYOK launcher
 

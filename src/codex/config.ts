@@ -1,14 +1,21 @@
-import { mkdir, open, readFile, rename } from "node:fs/promises";
+import { mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir as systemHomedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { parse } from "@iarna/toml";
 import { resolveCLIProxyBaseUrl } from "../cliproxyapi/models";
 
 export const DEFAULT_CODEX_MODEL = "gpt-5.5";
+export const DEFAULT_9ROUTER_BASE_URL = "http://127.0.0.1:20128/v1";
+export const DEFAULT_9ROUTER_CODEX_MODEL = "gpt-5.5";
+
 const ROOT_START = "# >>> pi-kit Codex CLIProxyAPI v1 root >>>";
 const ROOT_END = "# <<< pi-kit Codex CLIProxyAPI v1 root <<<";
 const PROVIDER_START = "# >>> pi-kit Codex CLIProxyAPI v1 provider >>>";
 const PROVIDER_END = "# <<< pi-kit Codex CLIProxyAPI v1 provider <<<";
+const NINEROUTER_PROVIDER_START = "# >>> pi-kit Codex 9Router v1 provider >>>";
+const NINEROUTER_PROVIDER_END = "# <<< pi-kit Codex 9Router v1 provider <<<";
+const NINEROUTER_PROFILE_START = "# >>> pi-kit Codex 9Router v1 profile >>>";
+const NINEROUTER_PROFILE_END = "# <<< pi-kit Codex 9Router v1 profile <<<";
 
 export type CodexConfigOptions = {
   env?: Record<string, string | undefined>;
@@ -26,6 +33,22 @@ export type CodexCLIProxyAPIStatus = {
   path: string;
   selection: "managed CLIProxyAPI" | "CLIProxyAPI" | "OpenAI default" | "user selected";
   provider: "managed registered" | "user registered" | "not registered";
+};
+
+export type CodexNineRouterResult = {
+  configPath: string;
+  profilePath: string;
+  changed: boolean;
+  managedProvider: boolean;
+  managedProfile: boolean;
+};
+
+export type CodexNineRouterStatus = {
+  configPath: string;
+  profilePath: string;
+  provider: "managed registered" | "user registered" | "not registered";
+  profile: "managed profile" | "user profile" | "not installed";
+  model?: string;
 };
 
 type ManagedBlocks = {
@@ -53,6 +76,10 @@ export function resolveCodexHome(
 
 export function codexConfigPath(options: CodexConfigOptions = {}): string {
   return join(resolveCodexHome(options.env, options.homedir), "config.toml");
+}
+
+export function codexNineRouterProfilePath(options: CodexConfigOptions = {}): string {
+  return join(resolveCodexHome(options.env, options.homedir), "9router.config.toml");
 }
 
 export async function installCodexCLIProxyAPI(options: CodexConfigOptions = {}): Promise<CodexConfigResult> {
@@ -184,6 +211,208 @@ export async function uninstallCodexCLIProxyAPI(options: CodexConfigOptions = {}
   return { path, changed: true, managedRoot: Boolean(blocks.root), managedProvider: Boolean(blocks.provider) };
 }
 
+export async function installCodexNineRouter(options: CodexConfigOptions = {}): Promise<CodexNineRouterResult> {
+  const configPath = codexConfigPath(options);
+  const profilePath = codexNineRouterProfilePath(options);
+
+  const configSnapshot = await snapshotFile(configPath);
+  const profileSnapshot = await snapshotFile(profilePath);
+
+  // 1. Prepare config.toml with managed 9Router provider
+  const originalConfig = configSnapshot.content;
+  const configBlock = validateNineRouterProviderBlock(originalConfig);
+  const cliProxyBlocks = validateManagedBlocks(originalConfig);
+  assertBlocksDoNotCross(configBlock, cliProxyBlocks.root);
+  assertBlocksDoNotCross(configBlock, cliProxyBlocks.provider);
+
+  const parsedConfig = validateToml(originalConfig, configPath);
+  const existingProvider = nineRouterProviderFromParsedToml(parsedConfig);
+  const baseUrl = managedNineRouterBaseUrl(options);
+
+  if (existingProvider && !configBlock) {
+    throw new Error("model_providers.9router already exists without pi-kit markers; refusing to overwrite it.");
+  }
+
+  let nextConfig = originalConfig;
+  let managedProvider = Boolean(configBlock);
+
+  if (configBlock) {
+    assertNineRouterProviderBlock(configBlock, baseUrl);
+  } else {
+    nextConfig = appendProvider(nextConfig, nineRouterProviderBlock(newlineFor(nextConfig), baseUrl));
+    managedProvider = true;
+  }
+  validateToml(nextConfig, configPath);
+
+  // 2. Prepare 9router.config.toml with managed profile
+  const originalProfile = profileSnapshot.content;
+  let nextProfile = originalProfile;
+  let managedProfile = false;
+
+  if (originalProfile.trim().length > 0) {
+    const profileBlock = validateNineRouterProfileBlock(originalProfile);
+    validateToml(originalProfile, profilePath);
+    if (!profileBlock) {
+      throw new Error("9router profile already exists without pi-kit markers; refusing to overwrite it.");
+    }
+    assertNineRouterProfileBlock(profileBlock);
+    managedProfile = true;
+  } else {
+    const model = options.env?.NINEROUTER_MODEL?.trim() || DEFAULT_9ROUTER_CODEX_MODEL;
+    nextProfile = nineRouterProfileBlock(newlineFor(originalProfile), model);
+    validateToml(nextProfile, profilePath);
+    managedProfile = true;
+  }
+
+  let configChanged = false;
+  let profileChanged = false;
+  const rolledBack: FileSnapshot[] = [];
+
+  try {
+    if (nextConfig !== originalConfig) {
+      await replaceAtomically(configPath, originalConfig, nextConfig);
+      rolledBack.push(configSnapshot);
+      configChanged = true;
+    }
+
+    if (nextProfile !== originalProfile) {
+      await replaceAtomically(profilePath, originalProfile, nextProfile);
+      rolledBack.push(profileSnapshot);
+      profileChanged = true;
+    }
+  } catch (error) {
+    await rollbackMutations(rolledBack, error);
+  }
+
+  return {
+    configPath,
+    profilePath,
+    changed: configChanged || profileChanged,
+    managedProvider,
+    managedProfile,
+  };
+}
+
+export async function uninstallCodexNineRouter(options: CodexConfigOptions = {}): Promise<CodexNineRouterResult> {
+  const configPath = codexConfigPath(options);
+  const profilePath = codexNineRouterProfilePath(options);
+
+  const configSnapshot = await snapshotFile(configPath);
+  const profileSnapshot = await snapshotFile(profilePath);
+
+  // 1. Process config.toml
+  const originalConfig = configSnapshot.content;
+  const configBlock = validateNineRouterProviderBlock(originalConfig);
+  validateToml(originalConfig, configPath);
+  if (configBlock) assertNineRouterProviderBlock(configBlock);
+
+  let nextConfig = originalConfig;
+  if (configBlock) {
+    nextConfig = nextConfig.slice(0, configBlock.start)
+      + nineRouterProviderInterleavedContent(
+        configBlock,
+        nineRouterProviderPrefix(configBlock, extractManagedNineRouterBaseUrl(configBlock))
+      )
+      + nextConfig.slice(configBlock.end);
+    validateToml(nextConfig, configPath);
+  }
+
+  // 2. Process 9router.config.toml
+  const originalProfile = profileSnapshot.content;
+  let profileAction: "none" | "remove" | "replace" = "none";
+  let profileNext = originalProfile;
+
+  if (originalProfile.trim().length > 0) {
+    validateToml(originalProfile, profilePath);
+    const profileBlock = validateNineRouterProfileBlock(originalProfile);
+    if (profileBlock) {
+      assertNineRouterProfileBlock(profileBlock);
+      const remainder = originalProfile.slice(0, profileBlock.start) + originalProfile.slice(profileBlock.end);
+      if (remainder.trim().length === 0) {
+        profileAction = "remove";
+      } else {
+        validateToml(remainder, profilePath);
+        profileNext = remainder;
+        profileAction = "replace";
+      }
+    }
+  }
+
+  let configChanged = false;
+  let profileChanged = false;
+  const rolledBack: FileSnapshot[] = [];
+
+  try {
+    if (profileAction === "remove") {
+      await removeFileIfPresent(profilePath, originalProfile);
+      rolledBack.push(profileSnapshot);
+      profileChanged = true;
+    } else if (profileAction === "replace") {
+      await replaceAtomically(profilePath, originalProfile, profileNext);
+      rolledBack.push(profileSnapshot);
+      profileChanged = true;
+    }
+
+    if (nextConfig !== originalConfig) {
+      await replaceAtomically(configPath, originalConfig, nextConfig);
+      rolledBack.push(configSnapshot);
+      configChanged = true;
+    }
+  } catch (error) {
+    await rollbackMutations(rolledBack, error);
+  }
+
+  return {
+    configPath,
+    profilePath,
+    changed: configChanged || profileChanged,
+    managedProvider: false,
+    managedProfile: false,
+  };
+}
+
+export async function getCodexNineRouterStatus(options: CodexConfigOptions = {}): Promise<CodexNineRouterStatus> {
+  const configPath = codexConfigPath(options);
+  const profilePath = codexNineRouterProfilePath(options);
+
+  const configContent = await readConfig(configPath);
+  const configBlock = validateNineRouterProviderBlock(configContent);
+  const parsedConfig = validateToml(configContent, configPath);
+  if (configBlock) assertNineRouterProviderBlock(configBlock);
+
+  const provider: CodexNineRouterStatus["provider"] = configBlock
+    ? "managed registered"
+    : nineRouterProviderFromParsedToml(parsedConfig)
+    ? "user registered"
+    : "not registered";
+
+  const profileContent = await readConfig(profilePath);
+  let profile: CodexNineRouterStatus["profile"] = "not installed";
+  let model: string | undefined;
+
+  if (profileContent.trim().length > 0) {
+    const parsedProfile = validateToml(profileContent, profilePath);
+    const profileBlock = validateNineRouterProfileBlock(profileContent);
+    if (profileBlock) {
+      assertNineRouterProfileBlock(profileBlock);
+      profile = "managed profile";
+    } else {
+      profile = "user profile";
+    }
+    if (typeof parsedProfile.model === "string") {
+      model = parsedProfile.model;
+    }
+  }
+
+  return {
+    configPath,
+    profilePath,
+    provider,
+    profile,
+    model,
+  };
+}
+
 export async function readCodexConfig(options: CodexConfigOptions = {}): Promise<{ path: string; content: string; blocks: ManagedBlocks }> {
   const path = codexConfigPath(options);
   const content = await readConfig(path);
@@ -212,10 +441,16 @@ function providerPayload(newline: string, baseUrl: string): string {
 
 function managedBaseUrl(options: CodexConfigOptions): string {
   const env = options.env ?? process.env;
-  return configBaseUrl(resolveCLIProxyBaseUrl(env.CLIPROXYAPI_BASE_URL));
+  return configBaseUrl(resolveCLIProxyBaseUrl(env.CLIPROXYAPI_BASE_URL), "CLIPROXYAPI_BASE_URL");
 }
 
-function configBaseUrl(value: string): string {
+function managedNineRouterBaseUrl(options: CodexConfigOptions): string {
+  const env = options.env ?? process.env;
+  const raw = env.NINEROUTER_BASE_URL?.trim() || DEFAULT_9ROUTER_BASE_URL;
+  return configBaseUrl(raw, "NINEROUTER_BASE_URL");
+}
+
+function configBaseUrl(value: string, envName = "CLIPROXYAPI_BASE_URL"): string {
   try {
     const url = new URL(value);
     url.username = "";
@@ -224,8 +459,32 @@ function configBaseUrl(value: string): string {
     url.hash = "";
     return url.toString().replace(/\/$/, "");
   } catch {
-    throw new Error("CLIPROXYAPI_BASE_URL must be an absolute URL.");
+    throw new Error(`${envName} must be an absolute URL.`);
   }
+}
+
+function nineRouterProviderBlock(newline: string, baseUrl: string): string {
+  return [NINEROUTER_PROVIDER_START, nineRouterProviderPayload(newline, baseUrl), NINEROUTER_PROVIDER_END].join(newline);
+}
+
+function nineRouterProviderPayload(newline: string, baseUrl: string): string {
+  return [
+    "[model_providers.9router]",
+    'name = "9Router"',
+    `base_url = "${escapeTomlString(baseUrl)}"`,
+    'env_key = "NINEROUTER_API_KEY"',
+    'wire_api = "responses"',
+  ].join(newline);
+}
+
+function nineRouterProfileBlock(newline: string, model = DEFAULT_9ROUTER_CODEX_MODEL): string {
+  return [
+    NINEROUTER_PROFILE_START,
+    `model = "${escapeTomlString(model)}"`,
+    'model_provider = "9router"',
+    NINEROUTER_PROFILE_END,
+    "",
+  ].join(newline);
 }
 
 function escapeTomlString(value: string): string {
@@ -263,6 +522,12 @@ function providerFromParsedToml(parsed: Record<string, unknown>): boolean {
   const providers = parsed.model_providers;
   return Boolean(providers && typeof providers === "object" && !Array.isArray(providers)
     && Object.prototype.hasOwnProperty.call(providers, "cliproxyapi"));
+}
+
+function nineRouterProviderFromParsedToml(parsed: Record<string, unknown>): boolean {
+  const providers = parsed.model_providers;
+  return Boolean(providers && typeof providers === "object" && !Array.isArray(providers)
+    && Object.prototype.hasOwnProperty.call(providers, "9router"));
 }
 
 function hasUserModelSelection(parsed: Record<string, unknown>): boolean {
@@ -390,6 +655,73 @@ function extractManagedBaseUrl(block: Block): string {
   return match[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
 }
 
+function validateNineRouterProviderBlock(content: string): Block | undefined {
+  return findUniqueBlock(content, NINEROUTER_PROVIDER_START, NINEROUTER_PROVIDER_END, "9Router provider");
+}
+
+function validateNineRouterProfileBlock(content: string): Block | undefined {
+  return findUniqueBlock(content, NINEROUTER_PROFILE_START, NINEROUTER_PROFILE_END, "9Router profile");
+}
+
+function assertBlocksDoNotCross(a?: Block, b?: Block): void {
+  if (!a || !b) return;
+  if (a.start < b.end && b.start < a.end) {
+    throw new Error("Managed Codex markers are crossed.");
+  }
+}
+
+function assertNineRouterProviderBlock(block: Block, baseUrl?: string): void {
+  const managedBaseUrl = baseUrl ?? extractManagedNineRouterBaseUrl(block);
+  const prefix = nineRouterProviderPrefix(block, managedBaseUrl);
+  if (!block.content.startsWith(prefix)) {
+    throw new Error("Managed Codex 9Router provider block has been modified; refusing to continue.");
+  }
+  nineRouterProviderInterleavedContent(block, prefix);
+  const parsed = parse(block.content) as Record<string, unknown>;
+  const provider = parsed.model_providers;
+  const managedProvider = provider && typeof provider === "object" && !Array.isArray(provider)
+    ? (provider as Record<string, unknown>)["9router"]
+    : undefined;
+  if (!isExactManagedNineRouterProvider(managedProvider, managedBaseUrl)) {
+    throw new Error("Managed Codex 9Router provider block has been modified; refusing to continue.");
+  }
+}
+
+function nineRouterProviderPrefix(block: Block, baseUrl: string): string {
+  return [NINEROUTER_PROVIDER_START, nineRouterProviderPayload(newlineFor(block.content), baseUrl)].join(newlineFor(block.content));
+}
+
+function nineRouterProviderInterleavedContent(block: Block, prefix: string): string {
+  const newline = newlineFor(block.content);
+  const remainder = block.content.slice(prefix.length);
+  const markerSuffix = `${newline}${NINEROUTER_PROVIDER_END}`;
+  const terminal = remainder.endsWith(markerSuffix + newline) ? markerSuffix + newline
+    : remainder.endsWith(markerSuffix) ? markerSuffix
+    : undefined;
+  if (!terminal) throw new Error("Managed Codex 9Router provider block has been modified; refusing to continue.");
+  if (remainder === terminal) return "";
+  if (!remainder.startsWith(newline)) {
+    throw new Error("Managed Codex 9Router provider block has been modified; refusing to continue.");
+  }
+  const interleaved = remainder.slice(newline.length, -terminal.length);
+  const firstTable = interleaved.search(/\S/);
+  if (firstTable === -1 || interleaved[firstTable] !== "[") {
+    throw new Error("Managed Codex 9Router provider block has been modified; refusing to continue.");
+  }
+  return interleaved + newline;
+}
+
+function extractManagedNineRouterBaseUrl(block: Block): string {
+  const newline = newlineFor(block.content);
+  const prefix = `${NINEROUTER_PROVIDER_START}${newline}[model_providers.9router]${newline}name = "9Router"${newline}base_url = "`;
+  if (!block.content.startsWith(prefix)) {
+    throw new Error("Managed Codex 9Router provider block has been modified; refusing to continue.");
+  }
+  const match = /^((?:[^"\\]|\\.)*)"/.exec(block.content.slice(prefix.length));
+  if (!match) throw new Error("Managed Codex 9Router provider block has been modified; refusing to continue.");
+  return match[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+}
+
 function isExactManagedProvider(value: unknown, baseUrl: string): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const provider = value as Record<string, unknown>;
@@ -402,6 +734,51 @@ function isExactManagedProvider(value: unknown, baseUrl: string): boolean {
     && provider.wire_api === "responses";
 }
 
+function isExactManagedNineRouterProvider(value: unknown, baseUrl: string): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const provider = value as Record<string, unknown>;
+  const keys = Object.keys(provider).sort();
+  return keys.length === 4
+    && keys.every((key, index) => key === ["base_url", "env_key", "name", "wire_api"][index])
+    && provider.name === "9Router"
+    && provider.base_url === baseUrl
+    && provider.env_key === "NINEROUTER_API_KEY"
+    && provider.wire_api === "responses";
+}
+
+function assertNineRouterProfileBlock(block: Block): void {
+  const newline = newlineFor(block.content);
+  const terminal = block.content.endsWith(NINEROUTER_PROFILE_END + newline)
+    ? NINEROUTER_PROFILE_END + newline
+    : NINEROUTER_PROFILE_END;
+  if (!block.content.startsWith(NINEROUTER_PROFILE_START + newline) || !block.content.endsWith(terminal)) {
+    throw new Error("Managed Codex 9Router profile block has been modified; refusing to continue.");
+  }
+  try {
+    const parsed = parse(block.content) as Record<string, unknown>;
+    if (typeof parsed.model !== "string" || parsed.model.length === 0 || parsed.model_provider !== "9router") {
+      throw new Error("invalid managed 9router profile selection");
+    }
+  } catch {
+    throw new Error("Managed Codex 9Router profile block has been modified; refusing to continue.");
+  }
+}
+
+async function removeFileIfPresent(path: string, expectedContent?: string): Promise<void> {
+  try {
+    if (expectedContent !== undefined) {
+      const current = await readConfig(path);
+      if (current !== expectedContent) {
+        throw new Error("Codex 9router profile changed concurrently; refusing to overwrite it.");
+      }
+    }
+    await unlink(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+}
+
 async function readConfig(path: string): Promise<string> {
   try {
     return await readFile(path, "utf8");
@@ -411,13 +788,70 @@ async function readConfig(path: string): Promise<string> {
   }
 }
 
-async function replaceAtomically(path: string, expected: string, next: string): Promise<void> {
+type FileSnapshot = {
+  path: string;
+  exists: boolean;
+  content: string;
+};
+
+async function snapshotFile(path: string): Promise<FileSnapshot> {
+  try {
+    const content = await readFile(path, "utf8");
+    return { path, exists: true, content };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { path, exists: false, content: "" };
+    }
+    throw error;
+  }
+}
+
+async function restoreFileSnapshot(snapshot: FileSnapshot): Promise<void> {
+  if (snapshot.exists) {
+    await mkdir(dirname(snapshot.path), { recursive: true });
+    await writeFile(snapshot.path, snapshot.content, "utf8");
+  } else {
+    try {
+      await unlink(snapshot.path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+}
+
+async function rollbackMutations(snapshots: FileSnapshot[], primaryError: unknown): Promise<never> {
+  const rollbackErrors: unknown[] = [];
+  for (let i = snapshots.length - 1; i >= 0; i--) {
+    const snapshot = snapshots[i];
+    try {
+      await restoreFileSnapshot(snapshot);
+    } catch (err) {
+      rollbackErrors.push(err);
+    }
+  }
+
+  if (rollbackErrors.length > 0) {
+    const primaryMsg = primaryError instanceof Error ? primaryError.message : String(primaryError);
+    const rollbackMsgs = rollbackErrors.map((e) => (e instanceof Error ? e.message : String(e))).join("; ");
+    const combinedError = new Error(`${primaryMsg}; rollback failed: ${rollbackMsgs}`, {
+      cause: primaryError,
+    });
+    throw combinedError;
+  }
+
+  throw primaryError;
+}
+
+export async function replaceAtomically(path: string, expected: string, next: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const current = await readConfig(path);
   if (current !== expected) throw new Error("Codex config changed concurrently; refusing to overwrite it.");
 
   const tempPath = join(dirname(path), `.${path.split(/[\\/]/).pop()}.pi-kit-${process.pid}-${Date.now()}.tmp`);
   let handle: Awaited<ReturnType<typeof open>> | undefined;
+  let renamed = false;
   try {
     handle = await open(tempPath, "wx", 0o600);
     await handle.writeFile(next, "utf8");
@@ -426,7 +860,11 @@ async function replaceAtomically(path: string, expected: string, next: string): 
     handle = undefined;
     if (await readConfig(path) !== expected) throw new Error("Codex config changed concurrently; refusing to overwrite it.");
     await rename(tempPath, path);
+    renamed = true;
   } finally {
     await handle?.close().catch(() => undefined);
+    if (!renamed) {
+      await unlink(tempPath).catch(() => undefined);
+    }
   }
 }
