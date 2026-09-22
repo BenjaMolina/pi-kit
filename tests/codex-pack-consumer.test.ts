@@ -17,6 +17,7 @@ const packageFiles = [
   "src/cliproxyapi/discovery.ts",
   "src/cliproxyapi/models.ts",
   "src/cliproxyapi/opencode.ts",
+  "src/cliproxyapi/9router.ts",
   "src/copilot/cli.ts",
   "src/copilot/launcher.ts",
   "src/copilot/state.ts",
@@ -62,6 +63,7 @@ describe("Codex packed archive contract", () => {
       "src/copilot/vscode.ts",
       "src/codex/config.ts",
       "src/codex/doctor.ts",
+      "src/cliproxyapi/9router.ts",
       "profiles/cliproxyapi/plugins/codex-catalog-display-name/README.md",
       "profiles/cliproxyapi/plugins/codex-antigravity-responses-repair/repair.go",
     ]) {

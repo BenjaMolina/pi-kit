@@ -52,6 +52,7 @@ const REQUIRED_FILES = [
   "src/codex/doctor.ts",
   "src/codex/plugins.ts",
   "src/cliproxyapi/discovery.ts",
+  "src/cliproxyapi/9router.ts",
   "src/cliproxyapi/models.ts",
   "src/cliproxyapi/opencode.ts",
   "src/copilot/cli.ts",
@@ -153,6 +154,10 @@ function createRegistryMock(archivePath: string, tomlArchivePath?: string): Regi
       requests.push({ method: request.method, path: url.pathname });
       if (url.pathname === "/v1/models") {
         return Response.json({ models: [{ slug: "mock-cli-proxy-model", display_name: "Mock CLIProxyAPI Model" }] });
+      }
+      if (url.pathname === "/nine/v1/models") {
+        if (request.headers.get("authorization") !== "Bearer pack-nine-router-key") return new Response("unauthorized", { status: 401 });
+        return Response.json({ data: [{ id: "mock-nine-router-model" }] });
       }
       const packageName = decodeURIComponent(url.pathname).replace(/^\//, "");
       if (packageName === PACKAGE_NAME) {
@@ -313,11 +318,18 @@ async function verifyOpenCodeConsumer(consumer: string, registry: RegistryMock):
   await Bun.write(join(configDir, "opencode.json"), JSON.stringify({ plugin: [`${PACKAGE_NAME}@${PACKAGE_VERSION}`] }));
 
   assert(existsSync(OPENCODE_BIN), `OpenCode ${OPENCODE_VERSION} binary is missing; run npm ci first`);
-  const output = await runCommand([OPENCODE_BIN, "models", "cliproxyapi"], consumer, isolatedEnvironment(home, registry.url, {
+  const environment = isolatedEnvironment(home, registry.url, {
     CLIPROXYAPI_API_KEY: "pack-consumer-key",
     CLIPROXYAPI_BASE_URL: `${registry.url}v1`,
-  }));
+    NINEROUTER_API_KEY: "pack-nine-router-key",
+    NINEROUTER_BASE_URL: `${registry.url}nine/v1`,
+  });
+  const nineRouter = await runCommand([OPENCODE_BIN, "models", "9router"], consumer, environment);
+  assert(nineRouter.includes("9router/mock-nine-router-model"), `packaged OpenCode entry did not register 9Router:\n${nineRouter}`);
+  const output = await runCommand([OPENCODE_BIN, "models", "cliproxyapi"], consumer, environment);
   assert(output.includes("mock-cli-proxy-model"), `OpenCode ${OPENCODE_VERSION} did not list the mock model:\n${output}`);
+  assert(registry.requests.some((request) => request.method === "GET" && request.path === "/nine/v1/models"),
+    "packaged OpenCode entry did not request authenticated 9Router catalog");
   assertRegistryResolution(registry.requests, "OpenCode");
 }
 

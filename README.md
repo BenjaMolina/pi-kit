@@ -236,6 +236,12 @@ The catalog maps safe context/output limits, text and image input modalities, an
 
 Startup remains usable when the key is missing or CLIProxyAPI is unreachable: the plugin leaves the existing OpenCode configuration unchanged and injects no `cliproxyapi` provider. Credentials are neither logged nor persisted.
 
+### OpenCode + 9Router (optional)
+
+The same packaged OpenCode plugin also registers a separate `9router` provider when `NINEROUTER_API_KEY` is set in the OpenCode process environment. Start 9Router first; discovery requests its authenticated `/v1/models` catalog at startup. `NINEROUTER_BASE_URL` optionally overrides `http://127.0.0.1:20128/v1`. Restart OpenCode to refresh the catalog, then select `9router/<exact-model-id>`; the plugin does not change your current/default selection.
+
+9Router and CLIProxyAPI operate independently: either missing key or offline service leaves the other available. An existing user-owned `provider.9router` is never replaced. Catalog entries use conservative text-only capabilities (32,000 context / 4,096 output); verify your model's actual limits and capabilities independently. The key is held in process memory for OpenCode provider authentication, not persisted or logged by this plugin. No live user configuration is edited.
+
 ## Develop
 
 ```powershell
