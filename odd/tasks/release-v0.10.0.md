@@ -32,11 +32,11 @@ Publish `@benjamolina/pi-kit@0.10.0` from the exact `main` history containing th
 
 ## Task states
 
-- [x] **R1 — Prepare and verify manifests**: bumped exactly three manifest version fields from `0.9.0` to `0.10.0`; release manifest check, full test suite, packed-consumer runtime harness, npm pack dry-run, and diff hygiene all passed. Work-unit commit: _pending — parent owns commit creation_.
-- [ ] **R2 — Deliver green release PR**: not started. Parent opens and merges the release PR after reviewing this work unit.
-- [ ] **R3 — Tag, release, and publish**: not started. Requires an annotated `v0.10.0` tag on the merged release commit, GitHub Release with the existing verified CLIProxyAPI plugin assets, and a trusted OIDC publish run.
-- [ ] **R4 — Verify and align global runtime**: not started. Requires public npm exact/`latest` resolution to `0.10.0` and a healthy Bun global runtime alignment check.
-- [ ] **R5 — Preserve final evidence**: not started. Merge final release evidence into `main` through a focused documentation PR, mirroring the v0.9.0 PR #78 pattern.
+- [x] **R1 — Prepare and verify manifests**: bumped exactly three manifest version fields from `0.9.0` to `0.10.0`; release manifest check, full test suite, packed-consumer runtime harness, npm pack dry-run, and diff hygiene all passed. Work-unit commit: `e6d0f1716395be3af47025ed9348351ff4179d0c`.
+- [x] **R2 — Deliver green release PR**: delivered as PR #84 (https://github.com/BenjaMolina/pi-kit/pull/84), CI green at https://github.com/BenjaMolina/pi-kit/actions/runs/35748040981, merged to `main` as merge commit `c8c7b207dd3e5d72505bdede64fe8cd00ce9959f`.
+- [x] **R3 — Tag, release, and publish**: annotated tag `v0.10.0` peels to `c8c7b207dd3e5d72505bdede64fe8cd00ce9959f`; GitHub Release published at https://github.com/BenjaMolina/pi-kit/releases/tag/v0.10.0 with the existing verified CLIProxyAPI plugin assets; trusted OIDC publish run https://github.com/BenjaMolina/pi-kit/actions/runs/35751560202 succeeded (event `push`, head SHA `c8c7b207dd3e5d72505bdede64fe8cd00ce9959f`).
+- [x] **R4 — Verify and align global runtime**: public npm exact and `latest` both resolve `0.10.0`; Bun global install/runtime verification completed (see Evidence).
+- [ ] **R5 — Preserve final evidence**: this document update is prepared on branch `docs/complete-release-v0.10.0`. Completion requires committing, opening, and merging the final evidence documentation PR.
 
 ## Expected release scope
 
@@ -66,15 +66,16 @@ Publish `@benjamolina/pi-kit@0.10.0` from the exact `main` history containing th
 - R1 runtime harness (from `pack-consumer.ts`): isolated Pi consumer installed and listed the package via `pi install`/`pi list`; isolated OpenCode consumer resolved the plugin via `opencode models cliproxyapi` and listed the mock model; isolated Codex consumer's packaged `pi-kit-codex --help`, `install`, and `uninstall` wrote and cleanly removed managed configuration; isolated Copilot consumer's packaged `pi-kit-copilot --help`, `pick`/`switch` (non-TTY refusal), `models`, `use`, and `vscode sync`/`uninstall` all behaved correctly against the mocked CLIProxyAPI registry. All four consumers report exact version `0.10.0`.
 - R1 isolation: release branch is based on exact `origin/main` commit `523c56ad6cac4abd76445e055d98d1c9011ef671`, which already contains the merged 9Router integration (PRs #80, #81, #82); no unmerged feature-branch work is included.
 - R1 rollback boundary: `package.json` and `package-lock.json` only. Reverting these two files' version fields to `0.9.0` fully reverses this task's manifest change; this ODD document is additive documentation and carries no runtime effect.
-- R2 release PR: _pending — parent opens after reviewing this work unit._
-- R3 annotated tag `v0.10.0`: _pending._
-- R3 GitHub Release: _pending._
-- R3 release assets/checksums: _pending — expected to reuse the existing verified `codex-catalog-display-name` and `codex-antigravity-responses-repair` native plugin assets, unchanged since v0.9.0 unless a new build is required._
-- R3 trusted OIDC publish run: _pending._
-- R4 public npm exact/`latest` resolution: _pending._
-- R4 Bun global runtime alignment: _pending._
-- R5 final evidence documentation PR: _pending._
+- R2 release PR: PR #84 (https://github.com/BenjaMolina/pi-kit/pull/84), CI run https://github.com/BenjaMolina/pi-kit/actions/runs/35748040981 (green), merge commit `c8c7b207dd3e5d72505bdede64fe8cd00ce9959f`.
+- R3 annotated tag `v0.10.0`: peels to commit `c8c7b207dd3e5d72505bdede64fe8cd00ce9959f`.
+- R3 GitHub Release: https://github.com/BenjaMolina/pi-kit/releases/tag/v0.10.0.
+- R3 release assets/checksums: `codex-catalog-display-name-linux-amd64-v1.1.0.so` sha256 `1fab1d7f68cfcbca5d49cc359dda190f9930715614bd911f3c2cafc145a39a64`; `codex-antigravity-responses-repair-linux-amd64-v1.0.1.so` sha256 `85686e7bc6ee21b3ea3a0ea67343f79c97958753b10b48b70db4baac1a260e00`. Reused existing verified native plugin assets, unchanged since v0.9.0.
+- R3 trusted OIDC publish run: https://github.com/BenjaMolina/pi-kit/actions/runs/35751560202 — success, event `push`, head SHA `c8c7b207dd3e5d72505bdede64fe8cd00ce9959f`.
+- R4 public npm exact/`latest` resolution: both `npm view @benjamolina/pi-kit@0.10.0 version` and `npm view @benjamolina/pi-kit@latest version` resolve `0.10.0`.
+- R4 Bun global runtime alignment: `bun add -g @benjamolina/pi-kit@0.10.0` exited `1` with the known pre-existing `refusing to install dependency with unsafe name` warning, but confirmed installation of `@benjamolina/pi-kit@0.10.0` with `pi-kit-codex` and `pi-kit-copilot` binaries; `bun pm ls -g` confirms `0.10.0`. Runtime checks: both CLI `--help` commands succeeded; `pi-kit-codex 9router status` reported provider not registered/profile not installed (expected non-mutating status on a clean environment); `pi-kit-codex doctor` reported healthy — API key set, managed root/provider, proxy reachable, 2/2 plugins; `pi-kit-copilot doctor` reported healthy — selected `claude-sonnet-5` available, proxy reachable, VS Code managed, 55 models.
+- R4 workflow warnings: GitHub Actions logs show only non-blocking warnings — Node.js 20 action-runtime deprecation with forced Node 24, and a future `ubuntu-latest` migration to Ubuntu 26. No release failure.
+- R5 final evidence documentation PR: pending parent creation at this edit stage. The R5 document update is prepared on branch `docs/complete-release-v0.10.0`; the parent owns commit creation, PR opening, and merge for this evidence PR.
 
 ## Next step
 
-Parent reviews this work unit (branch `release/v0.10.0`, two-file manifest diff, and this document), then owns committing, pushing, opening the release PR (R2), and the subsequent tag/release/publish/verification/evidence tasks (R3–R5).
+Parent reviews this evidence work unit (branch `docs/complete-release-v0.10.0`, documentation-only diff to this file) and owns committing, pushing, and opening/merging the final evidence documentation PR (R5). Release delivery (R2–R4) is complete and recorded above.
