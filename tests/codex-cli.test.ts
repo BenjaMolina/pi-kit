@@ -163,7 +163,94 @@ describe("pi-kit-codex CLI", () => {
 
     await expect(runCodexCLI(["--help"], options)).resolves.toBe(0);
     expect(output.join("\n")).toContain("Usage: pi-kit-codex");
+    expect(output.join("\n")).toContain("9router");
     await expect(runCodexCLI(["use", "unexpected"], options)).resolves.toBe(1);
     await expect(runCodexCLI(["unexpected"], options)).resolves.toBe(1);
+  });
+
+  test("manages 9Router profile lifecycle without disclosing credentials", async () => {
+    const home = await mkdtemp(join(tmpdir(), "pi-kit-codex-cli-9r-"));
+    const output: string[] = [];
+    const options = {
+      env: {
+        CODEX_HOME: home,
+        NINEROUTER_BASE_URL: `http://user:${SECRET}@127.0.0.1:20128/v1?token=${SECRET}#${SECRET}`,
+        NINEROUTER_API_KEY: SECRET,
+      },
+      stdout: (line: string) => output.push(line),
+    };
+
+    // Initial status: not registered / not installed
+    await expect(runCodexCLI(["9router", "status"], options)).resolves.toBe(0);
+    expect(output.join("\n")).toContain("Provider: not registered");
+    expect(output.join("\n")).toContain("Profile: not installed");
+    output.length = 0;
+
+    // Install 9router
+    await expect(runCodexCLI(["9router", "install"], options)).resolves.toBe(0);
+    expect(output.join("\n")).toContain("Installed 9Router Codex profile");
+    expect(output.join("\n")).not.toContain(SECRET);
+    output.length = 0;
+
+    // Status after install
+    await expect(runCodexCLI(["9router", "status"], options)).resolves.toBe(0);
+    const statusReport = output.join("\n");
+    expect(statusReport).toContain("Provider: managed registered");
+    expect(statusReport).toContain("Profile: managed profile");
+    expect(statusReport).toContain("Model: gpt-5.5");
+    expect(statusReport).toContain(join(home, "config.toml"));
+    expect(statusReport).toContain(join(home, "9router.config.toml"));
+    expect(statusReport).not.toContain(SECRET);
+    output.length = 0;
+
+    // Verify config files
+    const configContent = await readFile(join(home, "config.toml"), "utf8");
+    expect(configContent).toContain("[model_providers.9router]");
+    expect(configContent).toContain("http://127.0.0.1:20128/v1");
+    expect(configContent).not.toContain(SECRET);
+
+    const profileContent = await readFile(join(home, "9router.config.toml"), "utf8");
+    expect(profileContent).toContain('model = "gpt-5.5"');
+    expect(profileContent).toContain('model_provider = "9router"');
+
+    // Repeated install is idempotent
+    await expect(runCodexCLI(["9router", "install"], options)).resolves.toBe(0);
+    expect(output.join("\n")).toContain("already installed");
+    output.length = 0;
+
+    // Uninstall
+    await expect(runCodexCLI(["9router", "uninstall"], options)).resolves.toBe(0);
+    expect(output.join("\n")).toContain("Removed managed 9Router Codex profile");
+    output.length = 0;
+
+    // Status after uninstall
+    await expect(runCodexCLI(["9router", "status"], options)).resolves.toBe(0);
+    expect(output.join("\n")).toContain("Provider: not registered");
+    expect(output.join("\n")).toContain("Profile: not installed");
+    output.length = 0;
+
+    // Repeated uninstall
+    await expect(runCodexCLI(["9router", "uninstall"], options)).resolves.toBe(0);
+    expect(output.join("\n")).toContain("No managed 9Router Codex profile found");
+  });
+
+  test("handles 9Router help and invalid subcommands", async () => {
+    const output: string[] = [];
+    const errors: string[] = [];
+    const options = {
+      stdout: (line: string) => output.push(line),
+      stderr: (line: string) => errors.push(line),
+    };
+
+    await expect(runCodexCLI(["9router", "--help"], options)).resolves.toBe(0);
+    expect(output.join("\n")).toContain("Usage: pi-kit-codex 9router");
+    output.length = 0;
+
+    await expect(runCodexCLI(["9router", "unexpected"], options)).resolves.toBe(1);
+    expect(errors.join("\n")).toContain("Unknown 9router command: unexpected");
+    errors.length = 0;
+
+    await expect(runCodexCLI(["9router", "status", "--unexpected"], options)).resolves.toBe(1);
+    expect(errors.join("\n")).toContain("status does not accept options");
   });
 });
