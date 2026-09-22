@@ -16,7 +16,7 @@ Publish `@benjamolina/pi-kit@0.9.0` from the exact `main` history containing mod
 
 ## Tasks
 
-- [x] **R1 — Prepare and verify manifests**: bumped exactly three manifest version fields from `0.8.0` to `0.9.0`; release manifest, 196 tests, packed consumers, npm pack dry-run, and diff hygiene passed. Independent verification found no issues. Commit: pending.
+- [x] **R1 — Prepare and verify manifests**: bumped exactly three manifest version fields from `0.8.0` to `0.9.0`; release manifest, 196 tests, packed consumers, npm pack dry-run, and diff hygiene passed. Independent verification found no issues. Commit: `80d3fc4c4944396efb310b3afed612c94f66ec82`.
 - [ ] **R2 — Deliver green release PR**: commit, push, open an approved release PR, wait for CI, and merge.
 - [ ] **R3 — Tag, release, and publish**: create immutable annotated `v0.9.0` from fresh `origin/main`, attach verified plugin assets, and publish through trusted OIDC.
 - [ ] **R4 — Verify and align global runtime**: verify npm exact/latest, update Bun global package, verify Copilot reasoning-effort behavior and Copilot/Codex doctors.
