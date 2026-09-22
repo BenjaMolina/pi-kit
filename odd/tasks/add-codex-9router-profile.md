@@ -63,7 +63,7 @@ A managed 9Router profile gives users explicit per-session provider selection, k
 - Size exception: explicitly authorized by the user for the first cohesive lifecycle slice.
 - Planned slice boundaries:
   - Slice 1: `src/codex/config.ts` + `tests/codex-config.test.ts` (managed provider/profile lifecycle, transactional rollback, and behavior/failure tests).
-  - Slice 2: `src/codex/cli.ts` + `tests/codex-cli.test.ts` + `README.md` + ODD progress document (CLI surface, documentation, and feature evidence).
+  - Slice 2: `src/codex/cli.ts` + `tests/codex-cli.test.ts` + `README.md` (CLI surface, documentation, and focused tests).
 - Commit creation still requires explicit user authorization, per the conversation agreement.
 
 ## Tasks
@@ -107,7 +107,10 @@ A managed 9Router profile gives users explicit per-session provider selection, k
 
 - Read-only exploration completed and identified the existing marker, atomic write, CLI dispatch, test, and documentation surfaces.
 - Current Codex CLI help confirms `-p <name>` layers `$CODEX_HOME/<name>.config.toml`; implementation uses that contract.
-- Feature branch created: `feat/codex-9router-profile`.
+- Feature Branch Chain created:
+  - Tracker: `feat/codex-9router-profile-chain`.
+  - Slice 1: `feat/codex-9router-profile-01-core`.
+  - Slice 2: `feat/codex-9router-profile-02-cli`.
 - Tasks C9R-1 through C9R-3 implemented under strict TDD:
   - Added behavior tests covering installation, idempotence, coexistence with CLIProxyAPI, unmanaged provider/profile collision guards, URL sanitization, secret non-disclosure, marker integrity, and clean uninstall.
   - Observed RED: missing export `getCodexNineRouterStatus` and CLI routing failure.
@@ -133,12 +136,13 @@ A managed 9Router profile gives users explicit per-session provider selection, k
 
 ## Commit evidence
 
-- Slice 1: `70de275` — `feat(codex): add managed 9Router profile lifecycle`
+- Tracker: `1bcfe8e` — `docs(odd): track managed 9Router Codex profile`
+  - File: this ODD document.
+- Slice 1: `0e07eb8` — `feat(codex): add managed 9Router profile lifecycle`
   - Files: `src/codex/config.ts`, `tests/codex-config.test.ts`.
   - Size exception: explicitly authorized for the cohesive lifecycle and failure-injection test unit.
-- Slice 2: `6c096cf` — `feat(codex): expose 9Router profile commands`
-  - Files: `src/codex/cli.ts`, `tests/codex-cli.test.ts`, `README.md`, and this ODD document.
-- Evidence closeout: user explicitly authorized a minimal third commit to persist the final slice identity after slice 2 existed.
+- Slice 2: `b36e662` — `feat(codex): expose 9Router profile commands`
+  - Files: `src/codex/cli.ts`, `tests/codex-cli.test.ts`, and `README.md`.
 
 ## Next step
 
