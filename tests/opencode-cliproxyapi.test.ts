@@ -20,6 +20,46 @@ describe("OpenCode CLIProxyAPI plugin", () => {
     } });
   });
 
+  test("registers reported 9Router catalog limits", async () => {
+    const plugin = createCLIProxyAPIOpenCodePlugin({
+      env: { NINEROUTER_API_KEY: "fake-nine" },
+      fetch: async () => new Response(JSON.stringify({ data: [{ id: "ag/gemini-3.8-flash", context_length: 1_048_576, max_completion_tokens: 65_536 }] })),
+    });
+    const config: Record<string, unknown> = {};
+    await (await plugin({})).config?.(config as never);
+    expect(config).toMatchObject({ provider: { "9router": { models: {
+      "ag/gemini-3.8-flash": { limit: { context: 1_048_576, output: 65_536 } },
+    } } } });
+  });
+
+  test("bounds 9Router limits and falls back independently for invalid metadata", async () => {
+    const data = [
+      { id: "boundary", context_length: 2, max_completion_tokens: 2 },
+      { id: "missing" },
+      { id: "malformed", context_length: "1048576", max_completion_tokens: -1 },
+      { id: "fractional", context_length: 1.5, max_completion_tokens: Number.MAX_SAFE_INTEGER + 1 },
+      { id: "oversize", context_length: 2_000_000, max_completion_tokens: 100_000 },
+      { id: "tiny", context_length: 1, max_completion_tokens: 1 },
+      { id: "partial", context_length: 100_000, max_completion_tokens: null },
+    ];
+    const plugin = createCLIProxyAPIOpenCodePlugin({
+      env: { NINEROUTER_API_KEY: "fake-nine" },
+      fetch: async () => new Response(JSON.stringify({ data })),
+    });
+    const config: Record<string, unknown> = {};
+    await (await plugin({})).config?.(config as never);
+    const models = (config.provider as Record<string, any>)["9router"].models;
+    expect(Object.fromEntries(Object.entries(models).map(([id, model]) => [id, (model as any).limit]))).toEqual({
+      boundary: { context: 2, output: 1 },
+      missing: { context: 32_000, output: 4_096 },
+      malformed: { context: 32_000, output: 4_096 },
+      fractional: { context: 32_000, output: 4_096 },
+      oversize: { context: 1_048_576, output: 65_536 },
+      tiny: { context: 32_000, output: 1 },
+      partial: { context: 100_000, output: 4_096 },
+    });
+  });
+
   test("keeps CLIProxyAPI when 9Router is offline and 9Router when CLIProxyAPI is offline", async () => {
     const plugin = createCLIProxyAPIOpenCodePlugin({
       env: { CLIPROXYAPI_API_KEY: "fake-cpa", NINEROUTER_API_KEY: "fake-nine" },

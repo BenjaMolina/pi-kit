@@ -4,6 +4,16 @@ export const NINEROUTER_DEFAULT_BASE_URL = "http://127.0.0.1:20128/v1";
 const MAX_MODELS = 256;
 const MAX_BODY_BYTES = 1_000_000;
 const TIMEOUT_MS = 3_000;
+const DEFAULT_CONTEXT = 32_000;
+const DEFAULT_OUTPUT = 4_096;
+const MAX_CONTEXT = 1_048_576;
+const MAX_OUTPUT = 65_536;
+
+function catalogLimit(value: unknown, fallback: number, maximum: number): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? Math.min(value, maximum)
+    : fallback;
+}
 
 export function resolveNineRouterBaseUrl(value?: string): string {
   const url = new URL(value?.trim() || NINEROUTER_DEFAULT_BASE_URL);
@@ -51,9 +61,13 @@ export async function discoverNineRouterModels(baseUrl: string, apiKey: string, 
     if (typeof id !== "string" || id.length > 200 || !/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(id) || ["__proto__", "prototype", "constructor"].includes(id) || Object.hasOwn(models, id)) {
       throw new Error("Invalid 9Router model ID");
     }
+    const metadata = entry as { context_length?: unknown; max_completion_tokens?: unknown };
+    const reportedContext = catalogLimit(metadata.context_length, DEFAULT_CONTEXT, MAX_CONTEXT);
+    const context = reportedContext > 1 ? reportedContext : DEFAULT_CONTEXT;
+    const output = Math.min(catalogLimit(metadata.max_completion_tokens, DEFAULT_OUTPUT, MAX_OUTPUT), context - 1);
     models[id] = {
       name: id,
-      limit: { context: 32_000, output: 4_096 },
+      limit: { context, output },
       modalities: { input: ["text"], output: ["text"] },
     };
   }
