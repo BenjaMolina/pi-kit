@@ -1,5 +1,6 @@
 import { discoverCLIProxyModels, type CLIProxyFetch } from "./discovery";
 import { resolveCLIProxyBaseUrl, type CLIProxyModel } from "./models";
+import { discoverNineRouterModels, resolveNineRouterBaseUrl } from "./9router";
 
 type OpenCodeConfig = {
   provider?: Record<string, unknown>;
@@ -82,9 +83,7 @@ export function createCLIProxyAPIOpenCodePlugin(
   return async () => ({
     config: async (config) => {
       const apiKey = env.CLIPROXYAPI_API_KEY?.trim();
-      if (!apiKey) return;
-
-      try {
+      if (apiKey) try {
         const baseUrl = resolveCLIProxyBaseUrl(env.CLIPROXYAPI_BASE_URL);
         const models = await discoverCLIProxyModels({ baseUrl, apiKey, fetch });
         const displayNames = disambiguateDisplayNames(models);
@@ -100,6 +99,24 @@ export function createCLIProxyAPIOpenCodePlugin(
         };
       } catch {
         // Keep OpenCode usable when the optional local proxy is unavailable.
+      }
+
+      const nineRouterKey = env.NINEROUTER_API_KEY?.trim();
+      if (!nineRouterKey || Object.hasOwn(config.provider ?? {}, "9router")) return;
+      try {
+        const baseUrl = resolveNineRouterBaseUrl(env.NINEROUTER_BASE_URL);
+        const models = await discoverNineRouterModels(baseUrl, nineRouterKey, fetch);
+        config.provider ??= {};
+        if (!Object.hasOwn(config.provider, "9router")) {
+          config.provider["9router"] = {
+            npm: "@ai-sdk/openai-compatible",
+            name: "9Router",
+            options: { baseURL: baseUrl, apiKey: nineRouterKey },
+            models,
+          };
+        }
+      } catch {
+        // Optional 9Router discovery must not block OpenCode startup.
       }
     },
   });
