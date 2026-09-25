@@ -1,5 +1,7 @@
 import type { CLIProxyFetch } from "./discovery";
 
+export { toPiModelFrom9Router, type NineRouterPiModel } from "./pi-9router";
+
 export const NINEROUTER_DEFAULT_BASE_URL = "http://127.0.0.1:20128/v1";
 const MAX_MODELS = 256;
 const MAX_BODY_BYTES = 1_000_000;
@@ -23,10 +25,18 @@ export function resolveNineRouterBaseUrl(value?: string): string {
   return url.toString().replace(/\/+$/, "");
 }
 
-export async function discoverNineRouterModels(baseUrl: string, apiKey: string, fetchModels: CLIProxyFetch): Promise<Record<string, unknown>> {
+export async function discoverNineRouterModels(
+  baseUrl: string,
+  apiKey: string,
+  fetchModels: CLIProxyFetch = globalThis.fetch,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
+  const requestSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)])
+    : AbortSignal.timeout(TIMEOUT_MS);
   const response = await fetchModels(`${baseUrl}/models`, {
     headers: { Authorization: `Bearer ${apiKey}` },
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: requestSignal,
   });
   if (!response.ok) throw new Error("9Router catalog unavailable");
   const declaredSize = Number(response.headers.get("content-length"));
@@ -37,6 +47,7 @@ export async function discoverNineRouterModels(baseUrl: string, apiKey: string, 
   let size = 0;
   try {
     while (true) {
+      if (requestSignal.aborted) throw requestSignal.reason ?? new Error("Request aborted");
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;

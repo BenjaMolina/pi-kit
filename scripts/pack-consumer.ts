@@ -216,13 +216,27 @@ async function verifyPiConsumer(consumer: string, registry: RegistryMock): Promi
   const environment = isolatedEnvironment(home, registry.url, {
     CLIPROXYAPI_API_KEY: "pack-consumer-key",
     CLIPROXYAPI_BASE_URL: `${registry.url}v1`,
+    NINEROUTER_API_KEY: "pack-nine-router-key",
+    NINEROUTER_BASE_URL: `${registry.url}nine/v1`,
   });
 
   await runCommand(["pi", "install", "--local", "--approve", `npm:${PACKAGE_NAME}@${PACKAGE_VERSION}`], project, environment);
   const packageDir = join(project, ".pi", "npm", "node_modules", "@benjamolina", "pi-kit");
   assert(existsSync(join(packageDir, "package.json")), "Pi did not install the named packed package into its project package manager");
+  assert(existsSync(join(packageDir, "extensions", "9router-dynamic-provider.ts")), "Pi did not install extensions/9router-dynamic-provider.ts");
+  assert(existsSync(join(packageDir, "src", "cliproxyapi", "pi-9router.ts")), "Pi did not install src/cliproxyapi/pi-9router.ts");
   const listed = await runCommand(["pi", "list", "--approve"], project, environment);
   assert(listed.includes(PACKAGE_NAME), `Pi ${PI_VERSION} did not list the installed package:\n${listed}`);
+
+  const nineRouterDynamic = await import(join(packageDir, "extensions", "9router-dynamic-provider.ts"));
+  assert(typeof nineRouterDynamic.default === "function", "Packaged 9Router dynamic provider does not export a default factory function");
+
+  const listedModels = await runCommand(["pi", "--list-models", "--approve"], project, environment);
+  assert(listedModels.split(/\r?\n/).some((line) => /^9router\s{2,}mock-nine-router-model(?:\s{2,}|$)/.test(line)),
+    `Pi ${PI_VERSION} did not list the 9router/mock-nine-router-model pair via --list-models`);
+  assert(registry.requests.some((request) => request.method === "GET" && request.path === "/nine/v1/models"),
+    "Pi consumer did not request authenticated 9Router catalog");
+
   assertRegistryResolution(registry.requests, "Pi");
 }
 
@@ -338,6 +352,8 @@ async function main(): Promise<void> {
   try {
     const archive = pack(temporary);
     assertArchiveContents(archive);
+    const archivePaths = archive.files.map((file) => file.path);
+    assert(archivePaths.includes("extensions/9router-dynamic-provider.ts"), "archive omits extensions/9router-dynamic-provider.ts");
     const archivePath = join(temporary, archive.filename);
     const tomlArchivePath = cachedNpmArchive(TOML_INTEGRITY);
     const piConsumer = join(temporary, "pi-consumer");
