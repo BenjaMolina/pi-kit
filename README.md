@@ -141,11 +141,11 @@ When a persisted `reasoningEffort` is present in state, `launch` revalidates it 
 
 [`profiles/cliproxyapi`](profiles/cliproxyapi/README.md) is a reproducible local Docker profile: secret-free configuration templates, a loopback-only Compose override, and a checksum-verified installer for the optional Control Account quota dashboard.
 
-### CLIProxyAPI dynamic providers
+### Dynamic model providers
 
-`extensions/cliproxyapi-dynamic-provider.ts` registers a Pi provider named `cliproxyapi`; the package's external OpenCode entry is `opencode/cliproxyapi.ts`. Both discover models currently exposed by a running [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) instance.
+`extensions/cliproxyapi-dynamic-provider.ts` registers a Pi provider named `cliproxyapi`; `extensions/9router-dynamic-provider.ts` registers a separate dynamic Pi provider named `9router`. The package's external OpenCode entry is `opencode/cliproxyapi.ts`. They discover models currently exposed by a running CLIProxyAPI or 9Router instance.
 
-They prefer CLIProxyAPI's enriched `/v1/models?client_version=1` catalog and fall back to the standard OpenAI-compatible `/v1/models` response. CLIProxyAPI remains responsible for provider credentials, account rotation, and load balancing.
+For CLIProxyAPI, they prefer the enriched `/v1/models?client_version=1` catalog and fall back to the standard OpenAI-compatible `/v1/models` response. For 9Router, discovery requests its authenticated `/v1/models` catalog when `NINEROUTER_API_KEY` is configured. CLIProxyAPI and 9Router remain responsible for provider credentials, account rotation, and load balancing.
 
 ## Install
 
@@ -227,6 +227,21 @@ $env:CLIPROXYAPI_API_KEY
 5. Select a model. Press `Ctrl+S` to save it as the startup default.
 
 After CLIProxyAPI account or model changes, use `/reload`, restart Pi, or run `pi update --models` to refresh the catalog.
+
+### Pi + 9Router (optional)
+
+`extensions/9router-dynamic-provider.ts` registers a separate `9router` provider in Pi when `NINEROUTER_API_KEY` is set in the Pi environment:
+
+1. Start 9Router.
+2. Set `NINEROUTER_API_KEY` in your environment. Optionally set `NINEROUTER_BASE_URL` (default: `http://127.0.0.1:20128/v1`).
+3. Start or reload Pi.
+4. Open `/model` or press `Ctrl+L` and search for the `9router` provider.
+5. Select a model (e.g. `9router/<exact-model-id>`). Native and default model selections are preserved.
+
+- **Opt-in:** when `NINEROUTER_API_KEY` is unset, the extension does not register the provider and Pi startup remains unaffected.
+- **Wire model IDs:** preserves the exact 9Router model ID on the wire without prefix mangling.
+- **Conservative metadata:** maps catalog limits to Pi with conservative text-only capability (`input: ["text"]`), no reasoning guessing (`reasoning: false`), and zero cost rates. Context defaults to 32,000 (capped at 1,048,576) and output defaults to 4,096 (capped at 65,536 and `context - 1`).
+- **Safety and coexistence:** missing key, offline 9Router service, invalid endpoint URL, or malformed catalog safely return an empty model list or skip registration without disrupting CLIProxyAPI, Pi startup, or other Pi providers. Credentials are never logged or persisted. Live user configuration (`models.json`) is never modified.
 
 ## Use in OpenCode 1.18.18
 
