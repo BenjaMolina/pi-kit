@@ -23,6 +23,37 @@ describe("9Router Pi model mapping and limits", () => {
     });
   });
 
+  test("enables only exact provider-qualified Sol model reasoning levels", () => {
+    const sixLevels = { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" };
+    for (const id of ["cx/gpt-6.1-sol", "cx/gpt-6-sol"]) {
+      expect(toPiModelFrom9Router(id)).toMatchObject({
+        reasoning: true,
+        thinkingLevelMap: sixLevels,
+        compat: { supportsDeveloperRole: false, supportsReasoningEffort: true },
+      });
+    }
+    expect(toPiModelFrom9Router("cx/gpt-5.6-sol[1m]")).toMatchObject({
+      reasoning: true,
+      thinkingLevelMap: { off: "none", minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
+      compat: { supportsDeveloperRole: false, supportsReasoningEffort: true },
+    });
+    for (const id of [
+      "other/gpt-6-sol", "cx/gpt-6-sol[1m]", "cx/gpt-6.1-sol[1m]", "cx/GPT-6-sol",
+      "cx/gpt-5.6-sol", "cx/gpt-5.6-sol[1m][1m]", "cx/gpt-5.6-sol[1m]extra", "gpt-6-sol",
+    ]) {
+      const model = toPiModelFrom9Router(id);
+      if (model) {
+        expect(model).toMatchObject({
+          reasoning: false,
+          compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
+        });
+        expect(model.thinkingLevelMap).toBeUndefined();
+      } else {
+        expect(model).toBeUndefined();
+      }
+    }
+  });
+
   test("accepts raw catalog metadata format", () => {
     const model = toPiModelFrom9Router("custom-model", {
       context_length: 128_000,

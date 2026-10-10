@@ -81,7 +81,6 @@ export default function nineRouterDynamicProvider(
     api: "openai-completions",
     compat: {
       supportsDeveloperRole: false,
-      supportsReasoningEffort: false,
     },
     async refreshModels({ signal } = {}) {
       try {
