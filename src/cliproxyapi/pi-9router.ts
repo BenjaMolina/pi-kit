@@ -24,7 +24,7 @@ export function toPiModelFrom9Router(
     typeof id !== "string" ||
     !id.trim() ||
     id.length > 200 ||
-    !/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(id) ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:/-]*(?:\[1m\])?$/.test(id) ||
     ["__proto__", "prototype", "constructor"].includes(id)
   ) {
     return undefined;

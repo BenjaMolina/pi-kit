@@ -201,6 +201,21 @@ describe("9Router dynamic provider Pi lifecycle", () => {
     expect(typeof registeredConfig.refreshModels).toBe("function");
   });
 
+  test("refreshModels retains ordinary and suffixed model IDs from mixed catalogs", async () => {
+    let registeredConfig: Record<string, unknown> = {};
+    const ids = ["cx/gpt-6-astra[1m]", "cx/gpt-6-sol[1m]", "cx/gpt-5.6-sol[1m]", "ordinary/model"];
+    nineRouterDynamicProvider({
+      registerProvider: (_name: string, config: Record<string, unknown>) => { registeredConfig = config; },
+    } as never, {
+      env: { NINEROUTER_API_KEY: "test-key" },
+      fetch: async () => new Response(JSON.stringify({ data: ids.map((id) => ({ id })) })),
+    });
+
+    const refreshModels = registeredConfig.refreshModels as (ctx?: unknown) => Promise<Array<{ id: string }>>;
+    const models = await refreshModels();
+    expect(models.map((model) => model.id)).toEqual(ids);
+  });
+
   test("refreshModels returns discovered models when catalog is valid", async () => {
     let registeredConfig: Record<string, unknown> = {};
     const mockPi = {
