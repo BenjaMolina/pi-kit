@@ -240,7 +240,7 @@ After CLIProxyAPI account or model changes, use `/reload`, restart Pi, or run `p
 
 - **Opt-in:** when `NINEROUTER_API_KEY` is unset, the extension does not register the provider and Pi startup remains unaffected.
 - **Wire model IDs:** preserves the exact 9Router model ID on the wire without prefix mangling.
-- **Conservative metadata:** maps catalog limits to Pi with conservative text-only capability (`input: ["text"]`), no reasoning guessing (`reasoning: false`), and zero cost rates. Context defaults to 32,000 (capped at 1,048,576) and output defaults to 4,096 (capped at 65,536 and `context - 1`).
+- **Conservative metadata:** maps catalog limits to Pi with text-only capability (`input: ["text"]`) and zero cost rates. Reasoning is enabled only for the exact verified IDs `cx/gpt-6.1-sol` and `cx/gpt-6-sol` (low through max), and `cx/gpt-5.6-sol[1m]` (off through max); Pi has no `ultra` thinking-level option, and other IDs remain non-reasoning. Context defaults to 32,000 (capped at 1,048,576) and output defaults to 4,096 (capped at 65,536 and `context - 1`).
 - **Safety and coexistence:** missing key, offline 9Router service, invalid endpoint URL, or malformed catalog safely return an empty model list or skip registration without disrupting CLIProxyAPI, Pi startup, or other Pi providers. Credentials are never logged or persisted. Live user configuration (`models.json`) is never modified.
 
 ## Use in OpenCode 1.18.18

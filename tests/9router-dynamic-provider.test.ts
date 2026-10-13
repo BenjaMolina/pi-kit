@@ -194,11 +194,63 @@ describe("9Router dynamic provider Pi lifecycle", () => {
     expect(registeredConfig.baseUrl).toBe("http://127.0.0.1:20128/v1");
     expect(registeredConfig.apiKey).toBe("$NINEROUTER_API_KEY");
     expect(registeredConfig.api).toBe("openai-completions");
-    expect(registeredConfig.compat).toEqual({
-      supportsDeveloperRole: false,
-      supportsReasoningEffort: false,
-    });
+    expect(registeredConfig.compat).toEqual({ supportsDeveloperRole: false });
     expect(typeof registeredConfig.refreshModels).toBe("function");
+  });
+
+  test("refreshModels retains ordinary and suffixed model IDs from mixed catalogs", async () => {
+    let registeredConfig: Record<string, unknown> = {};
+    const ids = ["cx/gpt-6-astra[1m]", "cx/gpt-6-sol[1m]", "cx/gpt-5.6-sol[1m]", "ordinary/model"];
+    nineRouterDynamicProvider({
+      registerProvider: (_name: string, config: Record<string, unknown>) => { registeredConfig = config; },
+    } as never, {
+      env: { NINEROUTER_API_KEY: "test-key" },
+      fetch: async () => new Response(JSON.stringify({ data: ids.map((id) => ({ id })) })),
+    });
+
+    const refreshModels = registeredConfig.refreshModels as (ctx?: unknown) => Promise<Array<{ id: string }>>;
+    const models = await refreshModels();
+    expect(models.map((model) => model.id)).toEqual(ids);
+  });
+
+  test("refreshModels retains exact Sol reasoning maps and conservative fallbacks", async () => {
+    let registeredConfig: Record<string, unknown> = {};
+    nineRouterDynamicProvider({
+      registerProvider: (_name: string, config: Record<string, unknown>) => { registeredConfig = config; },
+    } as never, {
+      env: { NINEROUTER_API_KEY: "test-key" },
+      fetch: async () => new Response(JSON.stringify({ data: [
+        { id: "cx/gpt-6.1-sol" },
+        { id: "cx/gpt-6-sol" },
+        { id: "cx/gpt-5.6-sol[1m]" },
+        { id: "other/gpt-6-sol" },
+        { id: "cx/gpt-6-sol[1m]" },
+        { id: "ordinary/model" },
+      ] })),
+    });
+
+    const refreshModels = registeredConfig.refreshModels as () => Promise<Array<Record<string, unknown>>>;
+    const models = await refreshModels();
+    expect(models.map((model) => model.id)).toEqual([
+      "cx/gpt-6.1-sol", "cx/gpt-6-sol", "cx/gpt-5.6-sol[1m]",
+      "other/gpt-6-sol", "cx/gpt-6-sol[1m]", "ordinary/model",
+    ]);
+    for (const model of models.slice(0, 2)) {
+      expect(model).toMatchObject({
+        reasoning: true,
+        thinkingLevelMap: { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
+        compat: { supportsReasoningEffort: true },
+      });
+    }
+    expect(models[2]).toMatchObject({
+      reasoning: true,
+      thinkingLevelMap: { off: "none", minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
+      compat: { supportsReasoningEffort: true },
+    });
+    for (const model of models.slice(3)) {
+      expect(model).toMatchObject({ reasoning: false, compat: { supportsReasoningEffort: false } });
+      expect(model.thinkingLevelMap).toBeUndefined();
+    }
   });
 
   test("refreshModels returns discovered models when catalog is valid", async () => {

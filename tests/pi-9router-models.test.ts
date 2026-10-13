@@ -23,6 +23,37 @@ describe("9Router Pi model mapping and limits", () => {
     });
   });
 
+  test("enables only exact provider-qualified Sol model reasoning levels", () => {
+    const sixLevels = { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" };
+    for (const id of ["cx/gpt-6.1-sol", "cx/gpt-6-sol"]) {
+      expect(toPiModelFrom9Router(id)).toMatchObject({
+        reasoning: true,
+        thinkingLevelMap: sixLevels,
+        compat: { supportsDeveloperRole: false, supportsReasoningEffort: true },
+      });
+    }
+    expect(toPiModelFrom9Router("cx/gpt-5.6-sol[1m]")).toMatchObject({
+      reasoning: true,
+      thinkingLevelMap: { off: "none", minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
+      compat: { supportsDeveloperRole: false, supportsReasoningEffort: true },
+    });
+    for (const id of [
+      "other/gpt-6-sol", "cx/gpt-6-sol[1m]", "cx/gpt-6.1-sol[1m]", "cx/GPT-6-sol",
+      "cx/gpt-5.6-sol", "cx/gpt-5.6-sol[1m][1m]", "cx/gpt-5.6-sol[1m]extra", "gpt-6-sol",
+    ]) {
+      const model = toPiModelFrom9Router(id);
+      if (model) {
+        expect(model).toMatchObject({
+          reasoning: false,
+          compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
+        });
+        expect(model.thinkingLevelMap).toBeUndefined();
+      } else {
+        expect(model).toBeUndefined();
+      }
+    }
+  });
+
   test("accepts raw catalog metadata format", () => {
     const model = toPiModelFrom9Router("custom-model", {
       context_length: 128_000,
@@ -61,6 +92,21 @@ describe("9Router Pi model mapping and limits", () => {
     });
     expect(boundary?.contextWindow).toBe(2);
     expect(boundary?.maxTokens).toBe(1);
+  });
+
+  test("accepts only the optional trailing [1m] suffix on valid model IDs", () => {
+    for (const id of ["cx/gpt-6-astra[1m]", "cx/gpt-6-sol[1m]", "cx/gpt-5.6-sol[1m]"]) {
+      expect(toPiModelFrom9Router(id)?.id).toBe(id);
+    }
+
+    for (const id of ["cx/model[1m]tail", "cx/model[[1m]", "cx/model[1m]]", "cx/model[1m][1m]", "cx/model[2m]"]) {
+      expect(toPiModelFrom9Router(id)).toBeUndefined();
+    }
+  });
+
+  test("preserves the 200-character limit for suffixed IDs", () => {
+    expect(toPiModelFrom9Router(`${"a".repeat(196)}[1m]`)?.id).toBe(`${"a".repeat(196)}[1m]`);
+    expect(toPiModelFrom9Router(`${"a".repeat(197)}[1m]`)).toBeUndefined();
   });
 
   test("rejects invalid, unsafe, or blank model IDs", () => {
@@ -103,6 +149,19 @@ describe("9Router catalog discovery", () => {
     expect(models["qwen/coder"]).toMatchObject({ limit: { context: 32_000, output: 4_096 } });
   });
 
+  test("discovers realistic suffixed IDs alongside ordinary IDs and preserves the 200-character boundary", async () => {
+    const ids = ["cx/gpt-6-astra[1m]", "cx/gpt-6-sol[1m]", "cx/gpt-5.6-sol[1m]", "ordinary/model"];
+    const models = await discoverNineRouterModels(
+      "http://localhost/v1",
+      "key",
+      async () => new Response(JSON.stringify({
+        data: [...ids.map((id) => ({ id })), { id: `${"a".repeat(196)}[1m]` }],
+      })),
+    );
+
+    expect(Object.keys(models)).toEqual([...ids, `${"a".repeat(196)}[1m]`]);
+  });
+
   test("rejects unavailable, malformed, empty, oversized, and unsafe catalogs", async () => {
     await expect(discoverNineRouterModels(
       "http://localhost/v1", "key", async () => new Response("", { status: 401 }),
@@ -113,8 +172,11 @@ describe("9Router catalog discovery", () => {
       JSON.stringify({ not_data: [] }),
       JSON.stringify({ data: [] }),
       JSON.stringify({ data: [{ id: "bad id" }] }),
+      ...["model[1m]tail", "model[[1m]", "model[1m]]", "model[1m][1m]", "model[2m]", `${"a".repeat(197)}[1m]`]
+        .map((id) => JSON.stringify({ data: [{ id }] })),
       JSON.stringify({ data: [{ id: "__proto__" }] }),
       JSON.stringify({ data: [{ id: "duplicate" }, { id: "duplicate" }] }),
+      JSON.stringify({ data: [{ id: "duplicate[1m]" }, { id: "duplicate[1m]" }] }),
       JSON.stringify({ data: Array.from({ length: 257 }, (_, i) => ({ id: `model-${i}` })) }),
     ]) {
       await expect(discoverNineRouterModels(

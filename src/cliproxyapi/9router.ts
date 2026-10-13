@@ -69,7 +69,7 @@ export async function discoverNineRouterModels(
   const models: Record<string, unknown> = Object.create(null);
   for (const entry of data) {
     const id = entry && typeof entry === "object" ? (entry as { id?: unknown }).id : undefined;
-    if (typeof id !== "string" || id.length > 200 || !/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/.test(id) || ["__proto__", "prototype", "constructor"].includes(id) || Object.hasOwn(models, id)) {
+    if (typeof id !== "string" || id.length > 200 || !/^[A-Za-z0-9][A-Za-z0-9._:/-]*(?:\[1m\])?$/.test(id) || ["__proto__", "prototype", "constructor"].includes(id) || Object.hasOwn(models, id)) {
       throw new Error("Invalid 9Router model ID");
     }
     const metadata = entry as { context_length?: unknown; max_completion_tokens?: unknown };
