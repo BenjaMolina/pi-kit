@@ -147,6 +147,8 @@ When a persisted `reasoningEffort` is present in state, `launch` revalidates it 
 
 For CLIProxyAPI, they prefer the enriched `/v1/models?client_version=1` catalog and fall back to the standard OpenAI-compatible `/v1/models` response. For 9Router, discovery requests its authenticated `/v1/models` catalog when `NINEROUTER_API_KEY` is configured. CLIProxyAPI and 9Router remain responsible for provider credentials, account rotation, and load balancing.
 
+Both Pi extension factories await live catalog discovery before registering their initial models, so startup model selection (including `:high` suffixes) does not depend on a later runtime refresh. Each provider's startup discovery has a three-second deadline (one shared deadline across CLIProxyAPI's enriched and fallback requests). Later network-permitted `refreshModels` calls still discover updated catalogs; cache-only (`allowNetwork: false`) and offline refreshes return the real startup or last successful catalog without fetching. No static model fallback is supplied: discovery errors leave an empty initial catalog without blocking other providers. After successful discovery, 9Router retains its last good catalog on errors, cancellation, or rejected empty/invalid responses; CLIProxyAPI still propagates explicit refresh errors, while a successful empty CLIProxyAPI response replaces its catalog with an empty list. With no key, CLIProxyAPI registers an empty provider and 9Router skips registration. `PI_OFFLINE=1`, `true`, or `yes` skips startup network discovery.
+
 ## Install
 
 ### Pi

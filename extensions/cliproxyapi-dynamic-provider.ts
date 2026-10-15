@@ -63,20 +63,36 @@ export async function fetchCLIProxyModels(signal?: AbortSignal) {
   })).map(toPiModel);
 }
 
-export default function cliproxyapiDynamicProvider(pi: ExtensionAPI) {
+export default async function cliproxyapiDynamicProvider(pi: ExtensionAPI) {
+  let models: Awaited<ReturnType<typeof fetchCLIProxyModels>> = [];
+  if (!/^(1|true|yes)$/i.test(process.env.PI_OFFLINE ?? "")
+    && process.env.CLIPROXYAPI_API_KEY?.trim()) {
+    try {
+      // One deadline covers both enriched discovery and its OpenAI fallback.
+      models = await fetchCLIProxyModels(AbortSignal.timeout(3_000));
+    } catch {
+      // An unavailable catalog must not prevent other extensions from loading.
+      models = [];
+    }
+  }
   pi.registerProvider(PROVIDER_ID, {
     name: "CLIProxyAPI",
     baseUrl: resolveCLIProxyBaseUrl(),
     apiKey: "$CLIPROXYAPI_API_KEY",
     api: "openai-completions",
+    models,
     compat: {
       supportsDeveloperRole: false,
       supportsReasoningEffort: true,
       supportsUsageInStreaming: true,
       maxTokensField: "max_tokens",
     },
-    async refreshModels({ signal } = {}) {
-      return fetchCLIProxyModels(signal);
+    async refreshModels({ signal, allowNetwork }: { signal?: AbortSignal; allowNetwork?: boolean } = {}) {
+      if (allowNetwork === false || /^(1|true|yes)$/i.test(process.env.PI_OFFLINE ?? "")) {
+        return models;
+      }
+      models = await fetchCLIProxyModels(signal);
+      return models;
     },
   });
 }

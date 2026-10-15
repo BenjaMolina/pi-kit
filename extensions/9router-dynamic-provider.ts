@@ -57,7 +57,7 @@ export async function fetchNineRouterModels(options: FetchNineRouterModelsOption
   return models;
 }
 
-export default function nineRouterDynamicProvider(
+export default async function nineRouterDynamicProvider(
   pi: ExtensionAPI,
   options?: FetchNineRouterModelsOptions,
 ) {
@@ -74,22 +74,40 @@ export default function nineRouterDynamicProvider(
     return;
   }
 
+  const isOffline = () => /^(1|true|yes)$/i.test(env.PI_OFFLINE ?? "")
+    || /^(1|true|yes)$/i.test(process.env.PI_OFFLINE ?? "");
+  let models: NineRouterPiModel[] = [];
+  if (!isOffline()) {
+    try {
+      models = await fetchNineRouterModels({ ...options, env });
+    } catch {
+      // Keep startup usable when the live catalog is unavailable.
+      models = [];
+    }
+  }
+
   pi.registerProvider(NINEROUTER_PROVIDER_ID, {
     name: "9Router",
     baseUrl,
     apiKey: "$NINEROUTER_API_KEY",
     api: "openai-completions",
+    models,
     compat: {
       supportsDeveloperRole: false,
     },
-    async refreshModels({ signal } = {}) {
+    async refreshModels({ signal, allowNetwork }: { signal?: AbortSignal; allowNetwork?: boolean } = {}) {
+      if (allowNetwork === false || isOffline()) {
+        return models;
+      }
       try {
         const combinedSignal = signal && options?.signal
           ? AbortSignal.any([signal, options.signal])
           : (signal ?? options?.signal);
-        return await fetchNineRouterModels({ ...options, env, signal: combinedSignal });
+        models = await fetchNineRouterModels({ ...options, env, signal: combinedSignal });
+        return models;
       } catch {
-        return [];
+        // Discovery rejects invalid/empty catalogs; retain only a real last-good list.
+        return models;
       }
     },
   });
