@@ -4,16 +4,18 @@ import {
   type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
 import cliproxyapi from "../extensions/cliproxyapi-dynamic-provider";
+import nineRouter from "../extensions/9router-dynamic-provider";
 
 let originalFetch: typeof fetch;
 const savedEnv = new Map<string, string | undefined>();
 beforeEach(() => {
   originalFetch = globalThis.fetch;
-  for (const name of ["CLIPROXYAPI_API_KEY", "CLIPROXYAPI_BASE_URL", "PI_OFFLINE"]) {
+  for (const name of ["CLIPROXYAPI_API_KEY", "CLIPROXYAPI_BASE_URL", "NINEROUTER_API_KEY", "NINEROUTER_BASE_URL", "PI_OFFLINE"]) {
     savedEnv.set(name, process.env[name]);
     delete process.env[name];
   }
   process.env.CLIPROXYAPI_API_KEY = "synthetic-key";
+  process.env.NINEROUTER_API_KEY = "synthetic-key";
 });
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -51,86 +53,94 @@ async function load(factory: ExtensionFactory) {
   return runtime;
 }
 
-test("cliproxyapi: awaited factory baseline resolves before runtime network refresh", async () => {
-  let calls = 0;
-  globalThis.fetch = (async () => {
-    calls++;
-    return Response.json({ models: [{ slug: "gpt-6-luna", supported_reasoning_levels: [{ effort: "high" }] }] });
-  }) as typeof fetch;
-  const old = await load(async (pi) => {
-    await cliproxyapi({ registerProvider: (name, config) => {
-      const { models: _baseline, ...refreshOnly } = config;
-      pi.registerProvider(name, {
-        ...refreshOnly,
-        refreshModels: async (context) => context.allowNetwork
-          ? refreshOnly.refreshModels!(context)
-          : [],
-      });
-    } } as never);
-  });
-  expect(resolveCliModel({ cliProvider: "cliproxyapi", cliModel: "gpt-6-luna:high", modelRuntime: old }).error).toBeDefined();
-  expect(calls).toBe(1);
-  const runtime = await load(cliproxyapi);
-  expect(calls).toBe(2);
-  const startupCalls = calls;
-  const resolved = resolveCliModel({ cliProvider: "cliproxyapi", cliModel: "gpt-6-luna:high", modelRuntime: runtime });
-  expect(resolved.error).toBeUndefined();
-  expect(resolved.model?.id).toBe("gpt-6-luna");
-  expect(resolved.thinkingLevel).toBe("high");
-  expect(calls).toBe(startupCalls);
-  await runtime.refresh({ allowNetwork: false, providers: ["cliproxyapi"] });
-  expect(calls).toBe(startupCalls);
-
-  process.env.PI_OFFLINE = "1";
-  await runtime.refresh({ allowNetwork: true, providers: ["cliproxyapi"] });
-  expect(calls).toBe(startupCalls);
-  expect(runtime.getModel("cliproxyapi", "gpt-6-luna")?.id).toBe("gpt-6-luna");
-  delete process.env.PI_OFFLINE;
-
-  globalThis.fetch = (async () => {
-    calls++;
-    throw new Error("synthetic transport failure");
-  }) as typeof fetch;
-  await runtime.refresh({ allowNetwork: true, providers: ["cliproxyapi"] });
-  expect(resolveCliModel({ cliProvider: "cliproxyapi", cliModel: "gpt-6-luna:high", modelRuntime: runtime }).model?.id).toBe("gpt-6-luna");
-
-  globalThis.fetch = (async (_url, init) => {
-    calls++;
-    const signal = init!.signal!;
-    signal.throwIfAborted();
-    return new Promise<Response>((_resolve, reject) => {
-      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+for (const [provider, factory, id] of [
+  ["cliproxyapi", cliproxyapi, "gpt-6-luna"],
+  ["9router", nineRouter, "cx/gpt-6-sol"],
+] as const) {
+  test(`${provider}: awaited factory baseline resolves before runtime network refresh`, async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return Response.json(provider === "cliproxyapi"
+        ? { models: [{ slug: id, supported_reasoning_levels: [{ effort: "high" }] }] }
+        : { data: [{ id }] });
+    }) as typeof fetch;
+    const old = await load(async (pi) => {
+      await factory({ registerProvider: (name, config) => {
+        const { models: _baseline, ...refreshOnly } = config;
+        pi.registerProvider(name, {
+          ...refreshOnly,
+          refreshModels: async (context) => context.allowNetwork
+            ? refreshOnly.refreshModels!(context)
+            : [],
+        });
+      } } as never);
     });
-  }) as typeof fetch;
-  const controller = new AbortController();
-  const cancelled = runtime.refresh({ allowNetwork: true, providers: ["cliproxyapi"], signal: controller.signal });
-  await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  controller.abort();
-  await cancelled.catch(() => undefined);
-  await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  expect(runtime.getModel("cliproxyapi", "gpt-6-luna")?.id).toBe("gpt-6-luna");
+    expect(resolveCliModel({ cliProvider: provider, cliModel: `${id}:high`, modelRuntime: old }).error).toBeDefined();
+    expect(calls).toBe(1);
+    const runtime = await load(factory);
+    expect(calls).toBe(2);
+    const startupCalls = calls;
+    const resolved = resolveCliModel({ cliProvider: provider, cliModel: `${id}:high`, modelRuntime: runtime });
+    expect(resolved.error).toBeUndefined();
+    expect(resolved.model?.id).toBe(id);
+    expect(resolved.thinkingLevel).toBe("high");
+    expect(calls).toBe(startupCalls);
+    await runtime.refresh({ allowNetwork: false, providers: [provider] });
+    expect(calls).toBe(startupCalls);
 
-  const nextId = "gpt-6-luna-updated";
-  globalThis.fetch = (async () => {
-    calls++;
-    return Response.json({ models: [{ slug: nextId }] });
-  }) as typeof fetch;
-  await runtime.refresh({ allowNetwork: true, providers: ["cliproxyapi"] });
-  expect(runtime.getModel("cliproxyapi", nextId)?.id).toBe(nextId);
-  expect(runtime.getModel("cliproxyapi", "gpt-6-luna")).toBeUndefined();
-});
+    process.env.PI_OFFLINE = "1";
+    await runtime.refresh({ allowNetwork: true, providers: [provider] });
+    expect(calls).toBe(startupCalls);
+    expect(runtime.getModel(provider, id)?.id).toBe(id);
+    delete process.env.PI_OFFLINE;
 
-test("cliproxyapi: offline registration and automatic cache restoration never fetch", async () => {
-  process.env.PI_OFFLINE = "yes";
-  let calls = 0;
-  globalThis.fetch = (async () => {
-    calls++;
-    throw new Error("unexpected synthetic network request");
-  }) as typeof fetch;
-  const runtime = await load(cliproxyapi);
-  await runtime.refresh({ allowNetwork: false, providers: ["cliproxyapi"] });
-  await runtime.refresh({ allowNetwork: true, providers: ["cliproxyapi"] });
-  await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  expect(calls).toBe(0);
-  expect(runtime.getModels("cliproxyapi")).toEqual([]);
-});
+    globalThis.fetch = (async () => {
+      calls++;
+      throw new Error("synthetic transport failure");
+    }) as typeof fetch;
+    await runtime.refresh({ allowNetwork: true, providers: [provider] });
+    expect(resolveCliModel({ cliProvider: provider, cliModel: `${id}:high`, modelRuntime: runtime }).model?.id).toBe(id);
+
+    globalThis.fetch = (async (_url, init) => {
+      calls++;
+      const signal = init!.signal!;
+      signal.throwIfAborted();
+      return new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    }) as typeof fetch;
+    const controller = new AbortController();
+    const cancelled = runtime.refresh({ allowNetwork: true, providers: [provider], signal: controller.signal });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    await cancelled.catch(() => undefined);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(runtime.getModel(provider, id)?.id).toBe(id);
+
+    const nextId = `${id}-updated`;
+    globalThis.fetch = (async () => {
+      calls++;
+      return Response.json(provider === "cliproxyapi"
+        ? { models: [{ slug: nextId }] } : { data: [{ id: nextId }] });
+    }) as typeof fetch;
+    await runtime.refresh({ allowNetwork: true, providers: [provider] });
+    expect(runtime.getModel(provider, nextId)?.id).toBe(nextId);
+    expect(runtime.getModel(provider, id)).toBeUndefined();
+  });
+
+  test(`${provider}: offline registration and automatic cache restoration never fetch`, async () => {
+    process.env.PI_OFFLINE = "yes";
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      throw new Error("unexpected synthetic network request");
+    }) as typeof fetch;
+    const runtime = await load(factory);
+    await runtime.refresh({ allowNetwork: false, providers: [provider] });
+    await runtime.refresh({ allowNetwork: true, providers: [provider] });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(calls).toBe(0);
+    expect(runtime.getModels(provider)).toEqual([]);
+  });
+}

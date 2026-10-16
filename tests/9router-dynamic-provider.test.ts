@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import nineRouterDynamicProvider, {
   fetchNineRouterModels,
   NINEROUTER_DEFAULT_BASE_URL,
@@ -95,22 +95,105 @@ describe("fetchNineRouterModels", () => {
 });
 
 describe("9Router dynamic provider Pi lifecycle", () => {
-  test("skips provider registration when NINEROUTER_API_KEY is not set", () => {
+  test("offline startup skips discovery but later refresh keeps injected dependencies", async () => {
+    for (const PI_OFFLINE of ["1", "true", "yes"]) {
+      let calls = 0;
+      let config: Record<string, unknown> = {};
+      const injected = new AbortController();
+      const caller = new AbortController();
+      let received: AbortSignal | undefined;
+      await nineRouterDynamicProvider({ registerProvider: (_name: string, value: Record<string, unknown>) => { config = value; } } as never, {
+        env: { NINEROUTER_API_KEY: "synthetic-key", PI_OFFLINE },
+        signal: injected.signal,
+        fetch: async (_url, init) => {
+          calls++;
+          received = init?.signal as AbortSignal;
+          return Response.json({ data: [{ id: "test-model" }] });
+        },
+      });
+      expect(config.models).toEqual([]);
+      expect(calls).toBe(0);
+      const refresh = config.refreshModels as (ctx: { signal: AbortSignal }) => Promise<unknown[]>;
+      expect(await refresh({ signal: caller.signal })).toEqual([]);
+      expect(calls).toBe(0);
+      injected.abort();
+      expect(received).toBeUndefined();
+    }
+  });
+
+  test("retains last good catalog on invalid/empty/failing discovery and replaces it only on success", async () => {
+    let config: Record<string, unknown> = {};
+    let body = JSON.stringify({ data: [{ id: "first-model" }] });
+    let fail = false;
+    const injected = new AbortController();
+    let received: AbortSignal | undefined;
+    await nineRouterDynamicProvider({ registerProvider: (_name: string, value: Record<string, unknown>) => { config = value; } } as never, {
+      env: { NINEROUTER_API_KEY: "synthetic-key" }, signal: injected.signal,
+      fetch: async (_url, init) => {
+        received = init?.signal as AbortSignal;
+        received.throwIfAborted();
+        if (fail) throw new Error("synthetic failure");
+        return new Response(body);
+      },
+    });
+    const refresh = config.refreshModels as (ctx?: { signal?: AbortSignal; allowNetwork?: boolean }) => Promise<Array<{ id: string }>>;
+    for (const invalid of ["not-json", JSON.stringify({ data: [] }), JSON.stringify({ data: [{ id: "bad id" }] })]) {
+      body = invalid;
+      expect((await refresh()).map((model) => model.id)).toEqual(["first-model"]);
+    }
+    fail = true;
+    expect((await refresh()).map((model) => model.id)).toEqual(["first-model"]);
+    fail = false;
+    body = JSON.stringify({ data: [{ id: "second-model" }] });
+    expect((await refresh()).map((model) => model.id)).toEqual(["second-model"]);
+    const caller = new AbortController();
+    await refresh({ signal: caller.signal });
+    caller.abort();
+    expect(received?.aborted).toBe(true);
+    injected.abort();
+    expect((await refresh()).map((model) => model.id)).toEqual(["second-model"]);
+  });
+
+  test("startup rejects no catalog globally and forwards injected cancellation", async () => {
+    for (const body of ["not-json", JSON.stringify({ data: [] }), JSON.stringify({ data: [{ id: "bad id" }] })]) {
+      let config: Record<string, unknown> = {};
+      await nineRouterDynamicProvider({ registerProvider: (_name: string, value: Record<string, unknown>) => { config = value; } } as never, {
+        env: { NINEROUTER_API_KEY: "synthetic-key" },
+        fetch: async () => new Response(body),
+      });
+      expect(config.models).toEqual([]);
+    }
+    const controller = new AbortController();
+    controller.abort();
+    let config: Record<string, unknown> = {};
+    await nineRouterDynamicProvider({ registerProvider: (_name: string, value: Record<string, unknown>) => { config = value; } } as never, {
+      env: { NINEROUTER_API_KEY: "synthetic-key" }, signal: controller.signal,
+      fetch: async (_url, init) => {
+        expect(init?.signal?.aborted).toBe(true);
+        init?.signal?.throwIfAborted();
+        throw new Error("unreachable");
+      },
+    });
+    expect(config.models).toEqual([]);
+  });
+  test("skips provider registration when NINEROUTER_API_KEY is not set", async () => {
     const registered: unknown[] = [];
     const mockPi = {
       registerProvider: (...args: unknown[]) => registered.push(args),
     };
 
-    nineRouterDynamicProvider(mockPi as never, { env: {} });
+    await nineRouterDynamicProvider(mockPi as never, { env: {} });
     expect(registered).toHaveLength(0);
   });
 
-  test("uses process.env by default when options are omitted", () => {
+  test("uses process.env by default when options are omitted", async () => {
     const registered: unknown[] = [];
     const mockPi = {
       registerProvider: (...args: unknown[]) => registered.push(args),
     };
 
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => Response.json({ data: [{ id: "test-model" }] })) as typeof fetch;
     const originalKey = process.env.NINEROUTER_API_KEY;
     const originalUrl = process.env.NINEROUTER_BASE_URL;
     try {
@@ -118,24 +201,25 @@ describe("9Router dynamic provider Pi lifecycle", () => {
       delete process.env.NINEROUTER_BASE_URL;
 
       // Without key, no provider registered
-      nineRouterDynamicProvider(mockPi as never);
+      await nineRouterDynamicProvider(mockPi as never);
       expect(registered).toHaveLength(0);
 
       // With key and invalid URL, no provider registered and does not throw
       process.env.NINEROUTER_API_KEY = "env-key";
       process.env.NINEROUTER_BASE_URL = "ftp://invalid-host";
-      expect(() => nineRouterDynamicProvider(mockPi as never)).not.toThrow();
+      await nineRouterDynamicProvider(mockPi as never);
       expect(registered).toHaveLength(0);
 
       // With key and valid default URL, provider registered with $NINEROUTER_API_KEY
       delete process.env.NINEROUTER_BASE_URL;
-      nineRouterDynamicProvider(mockPi as never);
+      await nineRouterDynamicProvider(mockPi as never);
       expect(registered).toHaveLength(1);
       const [name, config] = registered[0] as [string, Record<string, unknown>];
       expect(name).toBe(NINEROUTER_PROVIDER_ID);
       expect(config.apiKey).toBe("$NINEROUTER_API_KEY");
       expect(config.baseUrl).toBe(NINEROUTER_DEFAULT_BASE_URL);
     } finally {
+      globalThis.fetch = originalFetch;
       if (originalKey !== undefined) process.env.NINEROUTER_API_KEY = originalKey;
       else delete process.env.NINEROUTER_API_KEY;
       if (originalUrl !== undefined) process.env.NINEROUTER_BASE_URL = originalUrl;
@@ -143,7 +227,7 @@ describe("9Router dynamic provider Pi lifecycle", () => {
     }
   });
 
-  test("skips provider registration and does not throw when NINEROUTER_BASE_URL is invalid", () => {
+  test("skips provider registration and does not throw when NINEROUTER_BASE_URL is invalid", async () => {
     const registered: unknown[] = [];
     const mockPi = {
       registerProvider: (...args: unknown[]) => registered.push(args),
@@ -160,19 +244,17 @@ describe("9Router dynamic provider Pi lifecycle", () => {
 
     for (const invalidUrl of invalidUrls) {
       registered.length = 0;
-      expect(() => {
-        nineRouterDynamicProvider(mockPi as never, {
+      await nineRouterDynamicProvider(mockPi as never, {
           env: {
             NINEROUTER_API_KEY: "valid-key",
             NINEROUTER_BASE_URL: invalidUrl,
           },
         });
-      }).not.toThrow();
       expect(registered).toHaveLength(0);
     }
   });
 
-  test("registers 9Router provider with exact provider metadata when key is configured", () => {
+  test("registers 9Router provider with exact provider metadata when key is configured", async () => {
     let registeredName = "";
     let registeredConfig: Record<string, unknown> = {};
     const mockPi = {
@@ -182,7 +264,8 @@ describe("9Router dynamic provider Pi lifecycle", () => {
       },
     };
 
-    nineRouterDynamicProvider(mockPi as never, {
+    await nineRouterDynamicProvider(mockPi as never, {
+      fetch: async () => Response.json({ data: [{ id: "test-model" }] }),
       env: {
         NINEROUTER_API_KEY: "custom-test-key",
         NINEROUTER_BASE_URL: "http://127.0.0.1:20128/v1/",
@@ -201,7 +284,7 @@ describe("9Router dynamic provider Pi lifecycle", () => {
   test("refreshModels retains ordinary and suffixed model IDs from mixed catalogs", async () => {
     let registeredConfig: Record<string, unknown> = {};
     const ids = ["cx/gpt-6-astra[1m]", "cx/gpt-6-sol[1m]", "cx/gpt-5.6-sol[1m]", "ordinary/model"];
-    nineRouterDynamicProvider({
+    await nineRouterDynamicProvider({
       registerProvider: (_name: string, config: Record<string, unknown>) => { registeredConfig = config; },
     } as never, {
       env: { NINEROUTER_API_KEY: "test-key" },
@@ -215,7 +298,7 @@ describe("9Router dynamic provider Pi lifecycle", () => {
 
   test("refreshModels retains exact Sol reasoning maps and conservative fallbacks", async () => {
     let registeredConfig: Record<string, unknown> = {};
-    nineRouterDynamicProvider({
+    await nineRouterDynamicProvider({
       registerProvider: (_name: string, config: Record<string, unknown>) => { registeredConfig = config; },
     } as never, {
       env: { NINEROUTER_API_KEY: "test-key" },
@@ -261,7 +344,7 @@ describe("9Router dynamic provider Pi lifecycle", () => {
       },
     };
 
-    nineRouterDynamicProvider(mockPi as never, {
+    await nineRouterDynamicProvider(mockPi as never, {
       env: { NINEROUTER_API_KEY: "test-key" },
       fetch: async () => new Response(JSON.stringify({
         data: [{ id: "mock-model-1", context_length: 64_000, max_completion_tokens: 4_096 }],
@@ -282,7 +365,7 @@ describe("9Router dynamic provider Pi lifecycle", () => {
       },
     };
 
-    nineRouterDynamicProvider(mockPi as never, {
+    await nineRouterDynamicProvider(mockPi as never, {
       env: { NINEROUTER_API_KEY: "test-key" },
       fetch: async () => { throw new Error("connection reset by peer"); },
     });
@@ -302,7 +385,7 @@ describe("9Router dynamic provider Pi lifecycle", () => {
     };
 
     const controller = new AbortController();
-    nineRouterDynamicProvider(mockPi as never, {
+    await nineRouterDynamicProvider(mockPi as never, {
       env: { NINEROUTER_API_KEY: "test-key" },
       fetch: async (_url, init) => {
         receivedSignal = init?.signal as AbortSignal;
@@ -321,20 +404,19 @@ describe("9Router dynamic provider Pi lifecycle", () => {
 });
 
 describe("provider coexistence", () => {
-  const withCLIProxyCatalog = async (registerProvider: (name: string, config: Record<string, unknown>) => void) => {
-    const originalFetch = globalThis.fetch;
-    const originalApiKey = process.env.CLIPROXYAPI_API_KEY;
-    process.env.CLIPROXYAPI_API_KEY = "cliproxy-test-key";
-    globalThis.fetch = async () => new Response(JSON.stringify({ models: [{ slug: "cliproxy-model" }] }));
-    try {
-      await cliproxyapiDynamicProvider({ registerProvider } as never);
-    } finally {
-      globalThis.fetch = originalFetch;
-      if (originalApiKey === undefined) delete process.env.CLIPROXYAPI_API_KEY;
-      else process.env.CLIPROXYAPI_API_KEY = originalApiKey;
-    }
-  };
-
+  let originalFetch: typeof fetch;
+  let originalKey: string | undefined;
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    originalKey = process.env.CLIPROXYAPI_API_KEY;
+    process.env.CLIPROXYAPI_API_KEY = "synthetic-key";
+    globalThis.fetch = (async () => Response.json({ models: [{ slug: "test-model" }] })) as typeof fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.CLIPROXYAPI_API_KEY;
+    else process.env.CLIPROXYAPI_API_KEY = originalKey;
+  });
   test("registers CLIProxyAPI and 9Router concurrently without interference", async () => {
     const providers = new Map<string, Record<string, unknown>>();
     const mockPi = {
@@ -343,8 +425,8 @@ describe("provider coexistence", () => {
       },
     };
 
-    await withCLIProxyCatalog(mockPi.registerProvider);
-    nineRouterDynamicProvider(mockPi as never, {
+    await cliproxyapiDynamicProvider(mockPi as never);
+    await nineRouterDynamicProvider(mockPi as never, {
       env: { NINEROUTER_API_KEY: "nine-key" },
       fetch: async () => new Response(JSON.stringify({ data: [{ id: "nine-model" }] })),
     });
@@ -366,8 +448,8 @@ describe("provider coexistence", () => {
       },
     };
 
-    await withCLIProxyCatalog(mockPi.registerProvider);
-    nineRouterDynamicProvider(mockPi as never, {
+    await cliproxyapiDynamicProvider(mockPi as never);
+    await nineRouterDynamicProvider(mockPi as never, {
       env: { NINEROUTER_API_KEY: "nine-key" },
       fetch: async () => { throw new Error("9Router service is down"); },
     });
