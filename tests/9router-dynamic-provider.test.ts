@@ -321,6 +321,20 @@ describe("9Router dynamic provider Pi lifecycle", () => {
 });
 
 describe("provider coexistence", () => {
+  const withCLIProxyCatalog = async (registerProvider: (name: string, config: Record<string, unknown>) => void) => {
+    const originalFetch = globalThis.fetch;
+    const originalApiKey = process.env.CLIPROXYAPI_API_KEY;
+    process.env.CLIPROXYAPI_API_KEY = "cliproxy-test-key";
+    globalThis.fetch = async () => new Response(JSON.stringify({ models: [{ slug: "cliproxy-model" }] }));
+    try {
+      await cliproxyapiDynamicProvider({ registerProvider } as never);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalApiKey === undefined) delete process.env.CLIPROXYAPI_API_KEY;
+      else process.env.CLIPROXYAPI_API_KEY = originalApiKey;
+    }
+  };
+
   test("registers CLIProxyAPI and 9Router concurrently without interference", async () => {
     const providers = new Map<string, Record<string, unknown>>();
     const mockPi = {
@@ -329,7 +343,7 @@ describe("provider coexistence", () => {
       },
     };
 
-    cliproxyapiDynamicProvider(mockPi as never);
+    await withCLIProxyCatalog(mockPi.registerProvider);
     nineRouterDynamicProvider(mockPi as never, {
       env: { NINEROUTER_API_KEY: "nine-key" },
       fetch: async () => new Response(JSON.stringify({ data: [{ id: "nine-model" }] })),
@@ -352,7 +366,7 @@ describe("provider coexistence", () => {
       },
     };
 
-    cliproxyapiDynamicProvider(mockPi as never);
+    await withCLIProxyCatalog(mockPi.registerProvider);
     nineRouterDynamicProvider(mockPi as never, {
       env: { NINEROUTER_API_KEY: "nine-key" },
       fetch: async () => { throw new Error("9Router service is down"); },

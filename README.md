@@ -145,7 +145,7 @@ When a persisted `reasoningEffort` is present in state, `launch` revalidates it 
 
 `extensions/cliproxyapi-dynamic-provider.ts` registers a Pi provider named `cliproxyapi`; `extensions/9router-dynamic-provider.ts` registers a separate dynamic Pi provider named `9router`. The package's external OpenCode entry is `opencode/cliproxyapi.ts`. They discover models currently exposed by a running CLIProxyAPI or 9Router instance.
 
-For CLIProxyAPI, they prefer the enriched `/v1/models?client_version=1` catalog and fall back to the standard OpenAI-compatible `/v1/models` response. For 9Router, discovery requests its authenticated `/v1/models` catalog when `NINEROUTER_API_KEY` is configured. CLIProxyAPI and 9Router remain responsible for provider credentials, account rotation, and load balancing.
+For CLIProxyAPI, discovery prefers the enriched `/v1/models?client_version=1` catalog and falls back to the standard OpenAI-compatible `/v1/models` response. The CLIProxyAPI Pi extension awaits startup discovery before registering its initial catalog, with a three-second deadline shared across enriched and fallback requests. Later network-permitted refreshes discover updates; cache-only and offline refreshes do not fetch. Discovery errors leave an empty initial catalog without blocking other providers, while a successful empty refresh clears the catalog. With no key, CLIProxyAPI registers an empty provider; `PI_OFFLINE=1`, `true`, or `yes` skips startup discovery. For 9Router, discovery requests its authenticated `/v1/models` catalog when `NINEROUTER_API_KEY` is configured. CLIProxyAPI and 9Router remain responsible for provider credentials, account rotation, and load balancing.
 
 ## Install
 
