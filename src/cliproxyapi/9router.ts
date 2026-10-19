@@ -144,10 +144,19 @@ export async function discoverNineRouterModels(
     const reportedContext = catalogLimit(metadata.context_length, DEFAULT_CONTEXT, MAX_CONTEXT);
     const context = reportedContext > 1 ? reportedContext : DEFAULT_CONTEXT;
     const output = Math.min(catalogLimit(metadata.max_completion_tokens, DEFAULT_OUTPUT, MAX_OUTPUT), context - 1);
+    const rawCapabilities = (entry as { capabilities?: unknown }).capabilities;
+    const capabilities: Record<string, unknown> = {};
+    if (rawCapabilities && typeof rawCapabilities === "object" && !Array.isArray(rawCapabilities)) {
+      const source = rawCapabilities as Record<string, unknown>;
+      if (typeof source.reasoning === "boolean") capabilities.reasoning = source.reasoning;
+      if (typeof source.thinkingFormat === "string" && source.thinkingFormat.length <= 40 && /^[a-z0-9-]+$/.test(source.thinkingFormat)) capabilities.thinkingFormat = source.thinkingFormat;
+      if (typeof source.thinkingCanDisable === "boolean") capabilities.thinkingCanDisable = source.thinkingCanDisable;
+    }
     models[id] = {
       name: id,
       limit: { context, output },
       modalities: { input: ["text"], output: ["text"] },
+      ...(Object.keys(capabilities).length ? { capabilities } : {}),
     };
   }
   return models;
