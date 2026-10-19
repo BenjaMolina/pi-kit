@@ -52,7 +52,7 @@ Rules:
 
 - [x] 1. RED/GREEN: carry sanitized `capabilities` through discovery and resolve per-model thinking maps in `toPiModelFrom9Router`, with tests and a README note. Route: delegated writer (`gentle-ai-worker`).
 - [x] 2. Verify: focused suites, full `bun test`, `npm run test:pack`, `git diff --check`, and a read-only check of the real catalog (no inference). Route: parent runs the commands.
-- [x] 3. Work-unit commit on the feature branch (Conventional Commit); record the SHA. Push, PR and release remain user decisions.
+- [x] 3. Work-unit commit on the feature branch (Conventional Commit); record the SHA. Push, PR and release remain user decisions. Commit: `7e7e035`.
 
 ## Evidence
 
