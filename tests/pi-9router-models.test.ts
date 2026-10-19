@@ -54,6 +54,28 @@ describe("9Router Pi model mapping and limits", () => {
     }
   });
 
+  test("maps capability-driven thinking levels and excludes effort-suffixed IDs", () => {
+    const allLevels = { off: "none", minimal: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" };
+    const adaptive = toPiModelFrom9Router("cc/claude-sonnet-5", { capabilities: { reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: true } });
+    expect(adaptive).toMatchObject({ reasoning: true, thinkingLevelMap: allLevels, compat: { supportsReasoningEffort: true } });
+    expect(toPiModelFrom9Router("cc/claude-sonnet-5", { capabilities: { reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false } })?.thinkingLevelMap?.off).toBeNull();
+    expect(toPiModelFrom9Router("ag/gemini-3.1-pro", { capabilities: { reasoning: true, thinkingFormat: "gemini-level" } })?.thinkingLevelMap).toEqual({ off: null, minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: null, max: null });
+    expect(toPiModelFrom9Router("ag/gemini-4-pro", { capabilities: { reasoning: true, thinkingFormat: "gemini-level" } })?.thinkingLevelMap).toEqual({ off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: null, max: null });
+    expect(toPiModelFrom9Router("ag/claude-sonnet-4-6", { capabilities: { reasoning: true, thinkingFormat: "claude-adaptive" } })?.thinkingLevelMap).toEqual({ off: "none", minimal: null, low: "low", medium: "medium", high: "high", xhigh: null, max: "max" });
+    for (const level of ["high", "medium", "low"]) expect(toPiModelFrom9Router(`ag/claude-sonnet-5-5-${level}`, { capabilities: { reasoning: true, thinkingFormat: "claude-adaptive" } })).toMatchObject({ reasoning: false, compat: { supportsReasoningEffort: false } });
+    expect(toPiModelFrom9Router("oc/model-free", { capabilities: { name: "hostile" } })).toMatchObject({ reasoning: false });
+  });
+
+  test("strips the [1m] suffix before checking effort-suffixed IDs and maps other formats", () => {
+    const adaptive = { capabilities: { reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: true } };
+    expect(toPiModelFrom9Router("ag/claude-sonnet-5-5-high[1m]", adaptive)).toMatchObject({ reasoning: false });
+    expect(toPiModelFrom9Router("cc/claude-sonnet-5[1m]", adaptive)).toMatchObject({ reasoning: true });
+    expect(toPiModelFrom9Router("cc/claude-haiku-4-5-20251001", { capabilities: { reasoning: true, thinkingFormat: "claude-budget", thinkingCanDisable: true } })?.thinkingLevelMap)
+      .toEqual({ off: "none", minimal: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" });
+    expect(toPiModelFrom9Router("mmf/mimo-auto", { capabilities: { reasoning: true, thinkingFormat: "deepseek", thinkingCanDisable: false } })?.thinkingLevelMap)
+      .toEqual({ off: null, minimal: null, low: null, medium: null, high: "high", xhigh: null, max: "max" });
+  });
+
   test("accepts raw catalog metadata format", () => {
     const model = toPiModelFrom9Router("custom-model", {
       context_length: 128_000,
@@ -147,6 +169,12 @@ describe("9Router catalog discovery", () => {
       modalities: { input: ["text"], output: ["text"] },
     });
     expect(models["qwen/coder"]).toMatchObject({ limit: { context: 32_000, output: 4_096 } });
+  });
+
+  test("sanitizes discovered capabilities", async () => {
+    const models = await discoverNineRouterModels("http://localhost/v1", "key", async () => Response.json({ data: [{ id: "model", capabilities: { reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false, extra: { nested: true }, huge: "x".repeat(1000), __proto__: { polluted: true }, bad: 1 } }] }));
+    expect(models.model).toMatchObject({ capabilities: { reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false } });
+    expect((models.model as { capabilities: object }).capabilities).toEqual({ reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false });
   });
 
   test("discovers realistic suffixed IDs alongside ordinary IDs and preserves the 200-character boundary", async () => {

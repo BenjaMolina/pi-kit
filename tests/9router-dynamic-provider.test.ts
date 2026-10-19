@@ -424,6 +424,35 @@ describe("9Router dynamic provider Pi lifecycle", () => {
     }
   });
 
+  test("refreshModels maps capability-driven thinking levels and suffixes end to end", async () => {
+    let registeredConfig: Record<string, unknown> = {};
+    await nineRouterDynamicProvider({
+      registerProvider: (_name: string, config: Record<string, unknown>) => { registeredConfig = config; },
+    } as never, {
+      env: { NINEROUTER_API_KEY: "test-key", NINEROUTER_OPENCODE_FREE_DISCOVERY: "0" },
+      fetch: async () => new Response(JSON.stringify({ data: [
+        { id: "cc/claude-sonnet-5", capabilities: { reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: true } },
+        { id: "cc/claude-opus-5-5", capabilities: { reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false } },
+        { id: "ag/gemini-3.1-pro-high", capabilities: { reasoning: true, thinkingFormat: "gemini-level" } },
+        { id: "cx/gpt-6.1-sol", capabilities: { reasoning: false } },
+        { id: "ordinary/no-capabilities" },
+      ] })),
+    });
+
+    const refreshModels = registeredConfig.refreshModels as () => Promise<Array<Record<string, unknown>>>;
+    const models = await refreshModels();
+    expect(models.map((model) => model.id)).toEqual([
+      "cc/claude-sonnet-5", "cc/claude-opus-5-5", "ag/gemini-3.1-pro-high", "cx/gpt-6.1-sol", "ordinary/no-capabilities",
+    ]);
+    expect(models[0]).toMatchObject({ reasoning: true, compat: { supportsReasoningEffort: true }, thinkingLevelMap: { off: "none", low: "low", high: "high" } });
+    expect(models[1]).toMatchObject({ reasoning: true, compat: { supportsReasoningEffort: true }, thinkingLevelMap: { off: null, low: "low", high: "high" } });
+    expect(models[2]).toMatchObject({ reasoning: false, compat: { supportsReasoningEffort: false } });
+    expect(models[2].thinkingLevelMap).toBeUndefined();
+    expect(models[3]).toMatchObject({ reasoning: true, compat: { supportsReasoningEffort: true }, thinkingLevelMap: { off: null, low: "low", high: "high", xhigh: "xhigh", max: "max" } });
+    expect(models[4]).toMatchObject({ reasoning: false, compat: { supportsReasoningEffort: false } });
+    expect(models[4].thinkingLevelMap).toBeUndefined();
+  });
+
   test("refreshModels returns discovered models when catalog is valid", async () => {
     let registeredConfig: Record<string, unknown> = {};
     const mockPi = {
