@@ -8,6 +8,7 @@ import nineRouterDynamicProvider, {
   resolveNineRouterBaseUrl,
 } from "../extensions/9router-dynamic-provider";
 import cliproxyapiDynamicProvider from "../extensions/cliproxyapi-dynamic-provider";
+import { discoverOpenCodeModels, mergeOpenCodeFreeModels } from "../src/cliproxyapi/9router";
 
 describe("resolveNineRouterBaseUrl", () => {
   test("uses default endpoint when undefined or empty", () => {
@@ -95,6 +96,93 @@ describe("fetchNineRouterModels", () => {
 });
 
 describe("9Router dynamic provider Pi lifecycle", () => {
+  test("accepts valid public [1m] IDs and rejects literal backslashes", async () => {
+    await expect(discoverOpenCodeModels(async () => Response.json({ data: [
+      { id: "model[1m]" }, { id: "model\\\\[1m\\\\]" },
+    ] }))).resolves.toEqual(["model[1m]"]);
+  });
+
+  test("merge helper preserves 9Router entries and caps extras", () => {
+    const original = Object.fromEntries(Array.from({ length: 256 }, (_, i) => [`m${i}`, {}]));
+    const merged = mergeOpenCodeFreeModels(original, ["new-free"]);
+    expect(Object.keys(merged)).toHaveLength(256);
+    expect(merged.m0).toBeDefined();
+    expect(merged["oc/new-free"]).toBeUndefined();
+  });
+
+  test("merges OpenCode free models without credentials, deduplicates and prunes retired oc models", async () => {
+    const requests: Array<{ url: string; authorization: string | null }> = [];
+    const models = await fetchNineRouterModels({
+      env: { NINEROUTER_API_KEY: "private-key" },
+      fetch: async (url, init) => {
+        requests.push({ url: String(url), authorization: new Headers(init?.headers).get("Authorization") });
+        if (String(url).includes("opencode.ai")) {
+          return Response.json({ data: [{ id: "jev-1.13" }, { id: "jev-1.13-free" }, { id: "bad id-free" }] });
+        }
+        return Response.json({ data: [{ id: "oc/old-free" }, { id: "oc/jev-1.13" }, { id: "oc/jev-1.13-free" }, { id: "ordinary" }] });
+      },
+    });
+    expect(models.map((model) => model.id)).toEqual(["oc/jev-1.13", "oc/jev-1.13-free", "ordinary"]);
+    expect(requests.find((request) => request.url.includes("opencode.ai"))?.authorization).toBeNull();
+  });
+
+  test("runs public discovery concurrently and absorbs its failure when 9Router fails", async () => {
+    let publicReject!: (error: Error) => void;
+    const unhandled: unknown[] = [];
+    const listener = (error: unknown) => unhandled.push(error);
+    process.on("unhandledRejection", listener);
+    try {
+      await expect(fetchNineRouterModels({
+        env: { NINEROUTER_API_KEY: "key" },
+        fetch: async (url) => {
+          if (String(url).startsWith("https://opencode.ai/")) {
+            return new Promise<Response>((_resolve, reject) => { publicReject = reject; });
+          }
+          publicReject(new Error("late public failure"));
+          throw new Error("9Router failure");
+        },
+      })).rejects.toThrow("9Router failure");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", listener);
+    }
+  });
+
+  test("slow public discovery does not add latency beyond its own timeout", async () => {
+    const started = Date.now();
+    const models = await fetchNineRouterModels({
+      env: { NINEROUTER_API_KEY: "key" },
+      fetch: async (url) => String(url).startsWith("https://opencode.ai/")
+        ? new Promise<Response>(() => {})
+        : Response.json({ data: [{ id: "ordinary" }] }),
+    });
+    expect(models.map((model) => model.id)).toEqual(["ordinary"]);
+    expect(Date.now() - started).toBeLessThan(3_500);
+  });
+
+  test("falls back on public catalog failure and supports opt-out", async () => {
+    for (const disabled of ["0", "false", "NO"]) {
+      let calls = 0;
+      const models = await fetchNineRouterModels({
+        env: { NINEROUTER_API_KEY: "key", NINEROUTER_OPENCODE_FREE_DISCOVERY: disabled },
+        fetch: async () => { calls++; return Response.json({ data: [{ id: "ordinary" }] }); },
+      });
+      expect(calls).toBe(1);
+      expect(models.map((model) => model.id)).toEqual(["ordinary"]);
+    }
+    let calls = 0;
+    const fallback = await fetchNineRouterModels({
+      env: { NINEROUTER_API_KEY: "key" },
+      fetch: async (url) => {
+        calls++;
+        if (String(url).startsWith("https://opencode.ai/")) throw new Error("public unavailable");
+        return Response.json({ data: [{ id: "ordinary" }, { id: "oc/retired" }] });
+      },
+    });
+    expect(fallback.map((model) => model.id)).toEqual(["ordinary", "oc/retired"]);
+  });
+
   test("offline startup skips discovery but later refresh keeps injected dependencies", async () => {
     for (const PI_OFFLINE of ["1", "true", "yes"]) {
       let calls = 0;

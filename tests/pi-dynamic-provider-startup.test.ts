@@ -59,7 +59,10 @@ for (const [provider, factory, id] of [
 ] as const) {
   test(`${provider}: awaited factory baseline resolves before runtime network refresh`, async () => {
     let calls = 0;
-    globalThis.fetch = (async () => {
+    globalThis.fetch = (async (input) => {
+      if (provider === "9router" && String(input).startsWith("https://opencode.ai/")) {
+        return new Response("unavailable", { status: 503 });
+      }
       calls++;
       return Response.json(provider === "cliproxyapi"
         ? { models: [{ slug: id, supported_reasoning_levels: [{ effort: "high" }] }] }

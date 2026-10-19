@@ -2,6 +2,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { CLIProxyFetch } from "../src/cliproxyapi/discovery";
 import {
   discoverNineRouterModels,
+  discoverOpenCodeModels,
+  mergeOpenCodeFreeModels,
+  MAX_NINEROUTER_MODELS,
   NINEROUTER_DEFAULT_BASE_URL,
   resolveNineRouterBaseUrl,
 } from "../src/cliproxyapi/9router";
@@ -46,7 +49,19 @@ export async function fetchNineRouterModels(options: FetchNineRouterModelsOption
     );
   }
   const baseUrl = resolveNineRouterBaseUrl(options.baseUrl ?? env.NINEROUTER_BASE_URL);
+  const disabled = /^(0|false|no)$/i.test(env.NINEROUTER_OPENCODE_FREE_DISCOVERY ?? "");
+  const publicCatalog = disabled
+    ? undefined
+    : discoverOpenCodeModels(options.fetch, options.signal).then((ids) => ids, () => undefined);
   const discovered = await discoverNineRouterModels(baseUrl, apiKey, options.fetch, options.signal);
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  const publicIds = publicCatalog
+    ? await Promise.race([
+      publicCatalog,
+      new Promise<undefined>((resolve) => { deadline = setTimeout(resolve, 3_000); }),
+    ]).finally(() => clearTimeout(deadline))
+    : undefined;
+  if (publicIds) mergeOpenCodeFreeModels(discovered, publicIds, MAX_NINEROUTER_MODELS);
   const models: NineRouterPiModel[] = [];
   for (const [id, entry] of Object.entries(discovered)) {
     const model = toPiModelFrom9Router(id, entry as any);
