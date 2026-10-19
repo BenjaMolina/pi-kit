@@ -28,7 +28,7 @@ Goal: keep the catalog self-maintaining. When 9Router or OpenCode rotates free m
 
 - [x] 1. RED/GREEN: public catalog discovery plus merge/prune/fallback/opt-out in `fetchNineRouterModels`, with tests and README. Route: delegated writer (`gentle-ai-worker`), parent verifies and commits.
 - [x] 2. Verify: focused tests, full `bun test`, `npm run test:pack`, `git diff --check`, and a bounded read-only check against the real local 9Router and public catalog (no inference). Route: delegated verifier.
-- [ ] 3. Work-unit commit on the feature branch (Conventional Commit) and record its SHA here. Push, PR, release and local install remain user decisions.
+- [x] 3. Work-unit commit on the feature branch (Conventional Commit) and record its SHA here. Push, PR, release and local install remain user decisions. Commit: `b866983` (task record evidence amended in follow-up).
 
 ## Evidence
 
