@@ -3,6 +3,7 @@ import type { CLIProxyFetch } from "../src/cliproxyapi/discovery";
 import {
   discoverNineRouterModels,
   discoverOpenCodeModels,
+  discoverOpenCodeModelLimits,
   mergeOpenCodeFreeModels,
   MAX_NINEROUTER_MODELS,
   NINEROUTER_DEFAULT_BASE_URL,
@@ -40,6 +41,18 @@ export type FetchNineRouterModelsOptions = {
   env?: Record<string, string | undefined>;
 };
 
+async function raceWithSignal<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+  signal.throwIfAborted();
+  let onAbort!: () => void;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try { return await Promise.race([work, aborted]); }
+  finally { signal.removeEventListener("abort", onAbort); }
+}
+
 export async function fetchNineRouterModels(options: FetchNineRouterModelsOptions = {}): Promise<NineRouterPiModel[]> {
   const env = options.env ?? process.env;
   const apiKey = resolveNineRouterApiKey(env);
@@ -49,19 +62,37 @@ export async function fetchNineRouterModels(options: FetchNineRouterModelsOption
     );
   }
   const baseUrl = resolveNineRouterBaseUrl(options.baseUrl ?? env.NINEROUTER_BASE_URL);
+  const startedAt = Date.now();
   const disabled = /^(0|false|no)$/i.test(env.NINEROUTER_OPENCODE_FREE_DISCOVERY ?? "");
   const publicCatalog = disabled
     ? undefined
     : discoverOpenCodeModels(options.fetch, options.signal).then((ids) => ids, () => undefined);
   const discovered = await discoverNineRouterModels(baseUrl, apiKey, options.fetch, options.signal);
-  let deadline: ReturnType<typeof setTimeout> | undefined;
-  const publicIds = publicCatalog
-    ? await Promise.race([
+  let publicIds: string[] | undefined;
+  if (publicCatalog) {
+    let zenDeadline: ReturnType<typeof setTimeout> | undefined;
+    publicIds = await raceWithSignal(Promise.race([
       publicCatalog,
-      new Promise<undefined>((resolve) => { deadline = setTimeout(resolve, 3_000); }),
-    ]).finally(() => clearTimeout(deadline))
-    : undefined;
-  if (publicIds) mergeOpenCodeFreeModels(discovered, publicIds, MAX_NINEROUTER_MODELS);
+      new Promise<undefined>((resolve) => { zenDeadline = setTimeout(resolve, Math.max(0, 3_000 - (Date.now() - startedAt))); }),
+    ]).finally(() => clearTimeout(zenDeadline)), options.signal);
+  }
+  options.signal?.throwIfAborted();
+  if (publicIds) {
+    const remaining = Math.max(0, 3_000 - (Date.now() - startedAt));
+    let metadata = new Map();
+    if (publicIds.some((id) => id.endsWith("-free")) && remaining > 0) {
+      const pending = discoverOpenCodeModelLimits(options.fetch).catch(() => new Map());
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      const result = await raceWithSignal(Promise.race([
+        pending.then((limits) => ({ limits })),
+        new Promise<{ limits: Map<string, never> }>((resolve) => { deadline = setTimeout(() => resolve({ limits: new Map() }), remaining); }),
+      ]).finally(() => clearTimeout(deadline)), options.signal);
+      options.signal?.throwIfAborted();
+      metadata = result.limits;
+    }
+    options.signal?.throwIfAborted();
+    mergeOpenCodeFreeModels(discovered, publicIds, MAX_NINEROUTER_MODELS, metadata);
+  }
   const models: NineRouterPiModel[] = [];
   for (const [id, entry] of Object.entries(discovered)) {
     const model = toPiModelFrom9Router(id, entry as any);
