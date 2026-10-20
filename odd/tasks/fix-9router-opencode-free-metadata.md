@@ -21,7 +21,7 @@ Branch: `fix/9router-opencode-free-metadata` from main. Route: delegated direct 
 
 - [x] Implement exact-ID metadata enrichment/cache/deadline with mocked tests and README (delegated writer). Writer final full suite: 287 passed, 0 failed; pack clean.
 - [x] Assess diff, run required independent checks and read-only live catalog verification (no inference). Independent final focused suite: 64 passed, 0 failed; diff check clean. An earlier independent full suite passed 285, 0, and pack was clean before the final two tests were added. Independent assessment marked unavailable was treated as high; independent verifier completed.
-- [ ] Commit coherent work unit and record evidence; commit pending. No push, release, or install is recorded as completed.
+- [x] Commit coherent work unit and record evidence: commit `a26f876`, merged as PR #124. The user accepted the single-PR size exception. No push, release, or install is recorded as completed.
 
 ## Verification and rollback
 
