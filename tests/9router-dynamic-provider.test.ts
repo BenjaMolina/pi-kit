@@ -8,7 +8,7 @@ import nineRouterDynamicProvider, {
   resolveNineRouterBaseUrl,
 } from "../extensions/9router-dynamic-provider";
 import cliproxyapiDynamicProvider from "../extensions/cliproxyapi-dynamic-provider";
-import { discoverOpenCodeModels, mergeOpenCodeFreeModels } from "../src/cliproxyapi/9router";
+import { discoverOpenCodeModelLimits, discoverOpenCodeModels, mergeOpenCodeFreeModels } from "../src/cliproxyapi/9router";
 
 describe("resolveNineRouterBaseUrl", () => {
   test("uses default endpoint when undefined or empty", () => {
@@ -110,6 +110,270 @@ describe("9Router dynamic provider Pi lifecycle", () => {
     expect(merged["oc/new-free"]).toBeUndefined();
   });
 
+  test("enriches only newly added exact OpenCode free IDs from models.dev limits", async () => {
+    const models = await fetchNineRouterModels({
+      env: { NINEROUTER_API_KEY: "key" },
+      fetch: async (url) => {
+        if (String(url).includes("opencode.ai")) return Response.json({ data: [{ id: "deepseek-r2-free" }, { id: "jev-1.13-free" }, { id: "not-listed-free" }] });
+        if (String(url).includes("models.dev")) return Response.json({ opencode: { models: {
+          "deepseek-r2-free": { limit: { context: 200_000, output: 32_000 } },
+          "jev-1.13-free": { limit: { context: 150_000, output: 24_000 } },
+        } } });
+        return Response.json({ data: [{ id: "oc/jev-1.13-free", context_length: 90_000, max_completion_tokens: 8_000 }] });
+      },
+    });
+    expect(models.find((model) => model.id === "oc/deepseek-r2-free")).toMatchObject({ contextWindow: 200_000, maxTokens: 32_000 });
+    expect(models.find((model) => model.id === "oc/jev-1.13-free")).toMatchObject({ contextWindow: 90_000, maxTokens: 8_000 });
+    expect(models.find((model) => model.id === "oc/not-listed-free")).toMatchObject({ contextWindow: 32_000, maxTokens: 4_096 });
+  });
+
+  test("models.dev declared oversized body falls back to Zen IDs", async () => {
+    const models = await fetchNineRouterModels({ env: { NINEROUTER_API_KEY: "key" }, fetch: async (url) => {
+      if (String(url).includes("opencode.ai")) return Response.json({ data: [{ id: "declared-free" }] });
+      if (String(url).includes("models.dev")) return new Response("", { headers: { "content-length": "10000001" } });
+      return Response.json({ data: [{ id: "ordinary" }] });
+    } });
+    expect(models.find((model) => model.id === "oc/declared-free")).toMatchObject({ contextWindow: 32_000, maxTokens: 4_096 });
+  });
+
+  test("models.dev streamed oversized body cancels stream and falls back to Zen IDs", async () => {
+    let canceled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (controller.desiredSize === null) return;
+        controller.enqueue(new Uint8Array(10_000_001));
+      },
+      cancel() { canceled = true; },
+    });
+    const models = await fetchNineRouterModels({ env: { NINEROUTER_API_KEY: "key" }, fetch: async (url) => {
+      if (String(url).includes("opencode.ai")) return Response.json({ data: [{ id: "streamed-free" }] });
+      if (String(url).includes("models.dev")) return new Response(body);
+      return Response.json({ data: [{ id: "ordinary" }] });
+    } });
+    expect(models.find((model) => model.id === "oc/streamed-free")).toMatchObject({ contextWindow: 32_000, maxTokens: 4_096 });
+    expect(canceled).toBe(true);
+  });
+
+  test("models.dev invalid numeric limits are ignored and valid limits obey safety caps", async () => {
+    const invalid = [-1, 0, "200000", 1.5, Number.MAX_SAFE_INTEGER + 1];
+    const models = await fetchNineRouterModels({ env: { NINEROUTER_API_KEY: "key" }, fetch: async (url) => {
+      if (String(url).includes("opencode.ai")) return Response.json({ data: [
+        ...invalid.map((_, index) => ({ id: `invalid-${index}-free` })),
+        { id: "context-cap-free" }, { id: "output-cap-free" }, { id: "headroom-free" },
+      ] });
+      if (String(url).includes("models.dev")) return Response.json({ opencode: { models: Object.fromEntries([
+        ...invalid.map((value, index) => [`invalid-${index}-free`, { limit: { context: value, output: value } }]),
+        ["context-cap-free", { limit: { context: 2_000_000, output: 80_000 } }],
+        ["output-cap-free", { limit: { context: 100_000, output: 80_000 } }],
+        ["headroom-free", { limit: { context: 32, output: 65_536 } }],
+      ]) } });
+      return Response.json({ data: [{ id: "ordinary" }] });
+    } });
+    for (let index = 0; index < invalid.length; index++) {
+      expect(models.find((model) => model.id === `oc/invalid-${index}-free`)).toMatchObject({ contextWindow: 32_000, maxTokens: 4_096 });
+    }
+    expect(models.find((model) => model.id === "oc/context-cap-free")).toMatchObject({ contextWindow: 1_048_576, maxTokens: 65_536 });
+    expect(models.find((model) => model.id === "oc/output-cap-free")).toMatchObject({ contextWindow: 100_000, maxTokens: 65_536 });
+    expect(models.find((model) => model.id === "oc/headroom-free")).toMatchObject({ contextWindow: 32, maxTokens: 31 });
+  });
+
+  test("missing exact free metadata does not inherit paid base limits", async () => {
+    const models = await fetchNineRouterModels({ env: { NINEROUTER_API_KEY: "key" }, fetch: async (url) => {
+      if (String(url).includes("opencode.ai")) return Response.json({ data: [{ id: "deepseek-free" }] });
+      if (String(url).includes("models.dev")) return Response.json({ opencode: { models: {
+        "deepseek": { limit: { context: 1_000_000, output: 384_000 } },
+      } } });
+      return Response.json({ data: [{ id: "ordinary" }] });
+    } });
+    expect(models.find((model) => model.id === "oc/deepseek-free")).toMatchObject({ contextWindow: 32_000, maxTokens: 4_096 });
+  });
+
+  test("public Zen and models.dev requests never receive authorization or API keys", async () => {
+    const requests: Array<{ url: string; authorization: string | null }> = [];
+    await fetchNineRouterModels({ env: { NINEROUTER_API_KEY: "private-key" }, fetch: async (url, init) => {
+      requests.push({ url: String(url), authorization: new Headers(init?.headers).get("Authorization") });
+      if (String(url).includes("opencode.ai")) return Response.json({ data: [{ id: "header-free" }] });
+      if (String(url).includes("models.dev")) return Response.json({ opencode: { models: {} } });
+      return Response.json({ data: [{ id: "ordinary" }] });
+    } });
+    for (const request of requests.filter(({ url }) => url.includes("opencode.ai") || url.includes("models.dev"))) {
+      expect(request.authorization).toBeNull();
+    }
+    expect(requests.filter(({ url }) => url.includes("opencode.ai") || url.includes("models.dev"))).toHaveLength(2);
+  });
+
+  test("models.dev failures and invalid metadata leave Zen IDs available with conservative limits", async () => {
+    for (const metadataResponse of [new Response("unavailable", { status: 503 }), new Response("not-json"), Response.json({ other: {} })]) {
+      const models = await fetchNineRouterModels({ env: { NINEROUTER_API_KEY: "key" }, fetch: async (url) => {
+        if (String(url).includes("opencode.ai")) return Response.json({ data: [{ id: "fallback-free" }] });
+        if (String(url).includes("models.dev")) return metadataResponse;
+        return Response.json({ data: [{ id: "ordinary" }] });
+      } });
+      expect(models.find((model) => model.id === "oc/fallback-free")).toMatchObject({ contextWindow: 32_000, maxTokens: 4_096 });
+    }
+  });
+
+  test("models.dev cache is scoped by fetch, coalesces requests, and expires", async () => {
+    const originalNow = Date.now;
+    let now = originalNow();
+    Date.now = () => now;
+    try {
+      let calls = 0;
+      let release!: (response: Response) => void;
+      const fetcher = async () => {
+        calls++;
+        if (calls === 1) return new Promise<Response>((resolve) => { release = resolve; });
+        return Response.json({ opencode: { models: {} } });
+      };
+      const first = discoverOpenCodeModelLimits(fetcher);
+      const second = discoverOpenCodeModelLimits(fetcher);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(calls).toBe(1);
+      release(Response.json({ opencode: { models: { "x-free": { limit: { context: 20_000, output: 2_000 } } } } }));
+      await Promise.all([first, second]);
+      await discoverOpenCodeModelLimits(fetcher);
+      expect(calls).toBe(1);
+      await discoverOpenCodeModelLimits(async () => { calls++; return Response.json({ opencode: { models: {} } }); });
+      expect(calls).toBe(2);
+      now += 60 * 60 * 1_000 + 1;
+      await discoverOpenCodeModelLimits(fetcher);
+      expect(calls).toBe(3);
+    } finally { Date.now = originalNow; }
+  });
+
+  test("does not admit late metadata completion after internal timeout", async () => {
+    let calls = 0;
+    const fetcher = async () => {
+      calls++;
+      if (calls === 1) return new Promise<Response>((resolve) => {
+        setTimeout(() => resolve(Response.json({ opencode: { models: { "late-free": { limit: { context: 99_000, output: 9_000 } } } } })), 3_100);
+      });
+      return Response.json({ opencode: { models: { "current-free": { limit: { context: 21_000, output: 2_100 } } } } });
+    };
+    const late = discoverOpenCodeModelLimits(fetcher).then(() => "resolved", () => "rejected");
+    await new Promise((resolve) => setTimeout(resolve, 3_200));
+    expect(await late).toBe("rejected");
+    await discoverOpenCodeModelLimits(fetcher);
+    const cached = await discoverOpenCodeModelLimits(fetcher);
+    expect(calls).toBe(2);
+    expect(cached.has("current-free")).toBe(true);
+  });
+
+  test("skips both public catalogs when free discovery is opted out", async () => {
+    let calls = 0;
+    await fetchNineRouterModels({ env: { NINEROUTER_API_KEY: "key", NINEROUTER_OPENCODE_FREE_DISCOVERY: "0" }, fetch: async () => {
+      calls++;
+      return Response.json({ data: [{ id: "ordinary" }] });
+    } });
+    expect(calls).toBe(1);
+  });
+
+  test("keeps Zen availability and pruning when models.dev never resolves", async () => {
+    const started = Date.now();
+    const models = await fetchNineRouterModels({ env: { NINEROUTER_API_KEY: "key" }, fetch: async (url) => {
+      if (String(url).includes("opencode.ai")) return Response.json({ data: [{ id: "fresh-free" }] });
+      if (String(url).includes("models.dev")) return new Promise<Response>(() => {});
+      return Response.json({ data: [{ id: "ordinary" }, { id: "oc/retired-free" }] });
+    } });
+    expect(models.map((model) => model.id)).toEqual(["ordinary", "oc/fresh-free"]);
+    expect(Date.now() - started).toBeLessThan(3_500);
+  });
+
+  test("cleans caller abort listeners after successful and canceled metadata waits", async () => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+    const add = signal.addEventListener.bind(signal);
+    const remove = signal.removeEventListener.bind(signal);
+    let added = 0;
+    let removed = 0;
+    signal.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => {
+      if (type === "abort") added++;
+      return add(type, listener, options);
+    }) as typeof signal.addEventListener;
+    signal.removeEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions) => {
+      if (type === "abort") removed++;
+      return remove(type, listener, options);
+    }) as typeof signal.removeEventListener;
+    const run = (abortAfterMetadata: boolean) => fetchNineRouterModels({ signal, env: { NINEROUTER_API_KEY: "key" }, fetch: async (url) => {
+      if (String(url).includes("opencode.ai")) return Response.json({ data: [{ id: "listener-free" }] });
+      if (String(url).includes("models.dev")) {
+        if (abortAfterMetadata) {
+          setTimeout(() => controller.abort(), 0);
+          return new Promise<Response>(() => {});
+        }
+        return Response.json({ opencode: { models: {} } });
+      }
+      return Response.json({ data: [{ id: "ordinary" }] });
+    } });
+    await run(false);
+    await expect(run(true)).rejects.toThrow();
+    expect(added).toBe(removed);
+  });
+
+  test("aborting one caller does not cancel shared metadata fetch for another caller", async () => {
+    const controller = new AbortController();
+    let release!: (response: Response) => void;
+    let metadataCalls = 0;
+    const fetcher = async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).includes("opencode.ai")) return Response.json({ data: [{ id: "shared-free" }] });
+      if (String(url).includes("models.dev")) {
+        metadataCalls++;
+        expect(init?.signal?.aborted).toBe(false);
+        return new Promise<Response>((resolve) => { release = resolve; });
+      }
+      return Response.json({ data: [{ id: "ordinary" }] });
+    };
+    const aborted = fetchNineRouterModels({ signal: controller.signal, env: { NINEROUTER_API_KEY: "key" }, fetch: fetcher });
+    const healthy = fetchNineRouterModels({ env: { NINEROUTER_API_KEY: "key" }, fetch: fetcher });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    await expect(aborted).rejects.toThrow();
+    release(Response.json({ opencode: { models: { "shared-free": { limit: { context: 20_000, output: 2_000 } } } } }));
+    expect((await healthy).find((model) => model.id === "oc/shared-free")).toMatchObject({ contextWindow: 20_000, maxTokens: 2_000 });
+    expect(metadataCalls).toBe(1);
+  });
+
+  test("cancellation during optional metadata wait rejects refresh", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const request = fetchNineRouterModels({ signal: controller.signal, env: { NINEROUTER_API_KEY: "key" }, fetch: async (url) => {
+      calls++;
+      if (String(url).includes("opencode.ai")) return Response.json({ data: [{ id: "fresh-free" }] });
+      if (String(url).includes("models.dev")) {
+        setTimeout(() => controller.abort(), 10);
+        return new Promise<Response>(() => {});
+      }
+      return Response.json({ data: [{ id: "ordinary" }] });
+    } });
+    await expect(request).rejects.toThrow();
+    expect(calls).toBe(3);
+  });
+
+  test("Zen consuming most of the shared deadline still keeps IDs when metadata hangs", async () => {
+    const started = Date.now();
+    const models = await fetchNineRouterModels({ env: { NINEROUTER_API_KEY: "key" }, fetch: async (url) => {
+      if (String(url).includes("opencode.ai")) {
+        await new Promise((resolve) => setTimeout(resolve, 2_600));
+        return Response.json({ data: [{ id: "late-zen-free" }] });
+      }
+      if (String(url).includes("models.dev")) return new Promise<Response>(() => {});
+      return Response.json({ data: [{ id: "ordinary" }] });
+    } });
+    expect(models.map((model) => model.id)).toEqual(["ordinary", "oc/late-zen-free"]);
+    expect(Date.now() - started).toBeLessThan(3_500);
+  });
+
+  test("merges Zen IDs after optional metadata exceeds the shared startup deadline", async () => {
+    const started = Date.now();
+    const models = await fetchNineRouterModels({ env: { NINEROUTER_API_KEY: "key" }, fetch: async (url) => {
+      if (String(url).includes("opencode.ai")) return Response.json({ data: [{ id: "fresh-free" }] });
+      if (String(url).includes("models.dev")) return new Promise<Response>(() => {});
+      return Response.json({ data: [{ id: "ordinary" }] });
+    } });
+    expect(models.map((model) => model.id)).toEqual(["ordinary", "oc/fresh-free"]);
+    expect(Date.now() - started).toBeLessThan(3_500);
+  });
+
   test("merges OpenCode free models without credentials, deduplicates and prunes retired oc models", async () => {
     const requests: Array<{ url: string; authorization: string | null }> = [];
     const models = await fetchNineRouterModels({
@@ -119,6 +383,7 @@ describe("9Router dynamic provider Pi lifecycle", () => {
         if (String(url).includes("opencode.ai")) {
           return Response.json({ data: [{ id: "jev-1.13" }, { id: "jev-1.13-free" }, { id: "bad id-free" }] });
         }
+        if (String(url).includes("models.dev")) return Response.json({ opencode: { models: {} } });
         return Response.json({ data: [{ id: "oc/old-free" }, { id: "oc/jev-1.13" }, { id: "oc/jev-1.13-free" }, { id: "ordinary" }] });
       },
     });
