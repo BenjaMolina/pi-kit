@@ -235,6 +235,15 @@ export async function discoverNineRouterModels(
     const reportedContext = catalogLimit(metadata.context_length, DEFAULT_CONTEXT, MAX_CONTEXT);
     const context = reportedContext > 1 ? reportedContext : DEFAULT_CONTEXT;
     const output = Math.min(catalogLimit(metadata.max_completion_tokens, DEFAULT_OUTPUT, MAX_OUTPUT), context - 1);
+    const rawModalities = (entry as { modalities?: unknown }).modalities;
+    const rawInput = rawModalities && typeof rawModalities === "object" && !Array.isArray(rawModalities)
+      ? (rawModalities as { input?: unknown }).input
+      : undefined;
+    const inputModalities: string[] = Array.isArray(rawInput) && rawInput.length <= 16
+      && rawInput.every((modality) => typeof modality === "string" && modality.length <= 32)
+      && rawInput.includes("image")
+      ? ["text", "image"]
+      : ["text"];
     const rawCapabilities = (entry as { capabilities?: unknown }).capabilities;
     const capabilities: Record<string, unknown> = {};
     if (rawCapabilities && typeof rawCapabilities === "object" && !Array.isArray(rawCapabilities)) {
@@ -246,7 +255,7 @@ export async function discoverNineRouterModels(
     models[id] = {
       name: id,
       limit: { context, output },
-      modalities: { input: ["text"], output: ["text"] },
+      modalities: { input: inputModalities, output: ["text"] },
       ...(Object.keys(capabilities).length ? { capabilities } : {}),
     };
   }
