@@ -689,6 +689,24 @@ describe("9Router dynamic provider Pi lifecycle", () => {
     }
   });
 
+  test("refreshModels enables vision from sanitized catalog capability without modality metadata", async () => {
+    let registeredConfig: Record<string, unknown> = {};
+    await nineRouterDynamicProvider({
+      registerProvider: (_name: string, config: Record<string, unknown>) => { registeredConfig = config; },
+    } as never, {
+      env: { NINEROUTER_API_KEY: "test-key", NINEROUTER_OPENCODE_FREE_DISCOVERY: "0" },
+      fetch: async () => Response.json({ data: [
+        { id: "cx/gpt-5.6-terra", modalities: null, capabilities: { vision: true, unknown: "ignored" } },
+        { id: "cx/not-vision", modalities: null, capabilities: { vision: "true" } },
+      ] }),
+    });
+
+    const refreshModels = registeredConfig.refreshModels as () => Promise<Array<Record<string, unknown>>>;
+    const models = await refreshModels();
+    expect(models.find((model) => model.id === "cx/gpt-5.6-terra")?.input).toEqual(["text", "image"]);
+    expect(models.find((model) => model.id === "cx/not-vision")?.input).toEqual(["text"]);
+  });
+
   test("refreshModels maps capability-driven thinking levels and suffixes end to end", async () => {
     let registeredConfig: Record<string, unknown> = {};
     await nineRouterDynamicProvider({

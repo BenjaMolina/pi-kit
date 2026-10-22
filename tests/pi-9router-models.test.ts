@@ -76,6 +76,13 @@ describe("9Router Pi model mapping and limits", () => {
       .toEqual({ off: null, minimal: null, low: null, medium: null, high: "high", xhigh: null, max: "max" });
   });
 
+  test("accepts image from validated modalities or an exact boolean vision capability", () => {
+    expect(toPiModelFrom9Router("capability-vision", { capabilities: { vision: true } })?.input).toEqual(["text", "image"]);
+    expect(toPiModelFrom9Router("raw-vision-string", { capabilities: { vision: "true" } as never })?.input).toEqual(["text"]);
+    expect(toPiModelFrom9Router("raw-vision-number", { capabilities: { vision: 1 } as never })?.input).toEqual(["text"]);
+    expect(toPiModelFrom9Router("validated-image-and-false-vision", { modalities: { input: ["image"] }, capabilities: { vision: false } })?.input).toEqual(["text", "image"]);
+  });
+
   test("preserves image input only when catalog modality explicitly declares it", () => {
     expect(toPiModelFrom9Router("image-model", { modalities: { input: ["text", "image"] } })?.input).toEqual(["text", "image"]);
     expect(toPiModelFrom9Router("image-without-text", { modalities: { input: ["image"] } })?.input).toEqual(["text", "image"]);
@@ -187,9 +194,9 @@ describe("9Router catalog discovery", () => {
   });
 
   test("sanitizes discovered capabilities", async () => {
-    const models = await discoverNineRouterModels("http://localhost/v1", "key", async () => Response.json({ data: [{ id: "model", capabilities: { reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false, extra: { nested: true }, huge: "x".repeat(1000), __proto__: { polluted: true }, bad: 1 } }] }));
-    expect(models.model).toMatchObject({ capabilities: { reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false } });
-    expect((models.model as { capabilities: object }).capabilities).toEqual({ reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false });
+    const models = await discoverNineRouterModels("http://localhost/v1", "key", async () => Response.json({ data: [{ id: "model", capabilities: { reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false, vision: true, visionString: "true", extra: { nested: true }, huge: "x".repeat(1000), __proto__: { polluted: true }, bad: 1 } }] }));
+    expect(models.model).toMatchObject({ capabilities: { reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false, vision: true } });
+    expect((models.model as { capabilities: object }).capabilities).toEqual({ reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false, vision: true });
   });
 
   test("discovers realistic suffixed IDs alongside ordinary IDs and preserves the 200-character boundary", async () => {

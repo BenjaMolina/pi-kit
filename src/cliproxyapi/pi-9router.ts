@@ -39,7 +39,7 @@ function solReasoningForModel(id: string): Record<string, string | null> | undef
   return undefined;
 }
 
-type NineRouterCapabilities = { reasoning?: unknown; thinkingFormat?: unknown; thinkingCanDisable?: unknown };
+type NineRouterCapabilities = { reasoning?: unknown; thinkingFormat?: unknown; thinkingCanDisable?: unknown; vision?: unknown };
 type LevelOverride = { provider?: string; test: string; levels: readonly string[] };
 
 const FORMAT_LEVELS: Record<string, readonly string[]> = {
@@ -121,10 +121,10 @@ export function toPiModelFrom9Router(
     id,
     name: id,
     reasoning: thinkingLevelMap !== undefined,
-    input: Array.isArray(entry?.modalities?.input)
+    input: (Array.isArray(entry?.modalities?.input)
       && entry.modalities.input.length <= 16
       && entry.modalities.input.every((modality) => typeof modality === "string" && modality.length <= 32)
-      && entry.modalities.input.includes("image")
+      && entry.modalities.input.includes("image")) || entry?.capabilities?.vision === true
       ? ["text", "image"]
       : ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

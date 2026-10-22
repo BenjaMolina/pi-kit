@@ -251,6 +251,7 @@ export async function discoverNineRouterModels(
       if (typeof source.reasoning === "boolean") capabilities.reasoning = source.reasoning;
       if (typeof source.thinkingFormat === "string" && source.thinkingFormat.length <= 40 && /^[a-z0-9-]+$/.test(source.thinkingFormat)) capabilities.thinkingFormat = source.thinkingFormat;
       if (typeof source.thinkingCanDisable === "boolean") capabilities.thinkingCanDisable = source.thinkingCanDisable;
+      if (typeof source.vision === "boolean") capabilities.vision = source.vision;
     }
     models[id] = {
       name: id,
