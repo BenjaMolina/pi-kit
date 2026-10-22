@@ -2,7 +2,7 @@ export interface NineRouterPiModel {
   id: string;
   name: string;
   reasoning: boolean;
-  input: ["text"];
+  input: ("text" | "image")[];
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
   contextWindow: number;
   maxTokens: number;
@@ -39,7 +39,7 @@ function solReasoningForModel(id: string): Record<string, string | null> | undef
   return undefined;
 }
 
-type NineRouterCapabilities = { reasoning?: unknown; thinkingFormat?: unknown; thinkingCanDisable?: unknown };
+type NineRouterCapabilities = { reasoning?: unknown; thinkingFormat?: unknown; thinkingCanDisable?: unknown; vision?: unknown };
 type LevelOverride = { provider?: string; test: string; levels: readonly string[] };
 
 const FORMAT_LEVELS: Record<string, readonly string[]> = {
@@ -93,6 +93,7 @@ export function toPiModelFrom9Router(
     context_length?: unknown;
     max_completion_tokens?: unknown;
     capabilities?: NineRouterCapabilities;
+    modalities?: { input?: unknown };
   },
 ): NineRouterPiModel | undefined {
   if (
@@ -120,7 +121,12 @@ export function toPiModelFrom9Router(
     id,
     name: id,
     reasoning: thinkingLevelMap !== undefined,
-    input: ["text"],
+    input: (Array.isArray(entry?.modalities?.input)
+      && entry.modalities.input.length <= 16
+      && entry.modalities.input.every((modality) => typeof modality === "string" && modality.length <= 32)
+      && entry.modalities.input.includes("image")) || entry?.capabilities?.vision === true
+      ? ["text", "image"]
+      : ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: context,
     maxTokens: output,
