@@ -36,7 +36,7 @@ The Compose override binds every published port to `127.0.0.1`. Keep `remote-man
 
 The dashboard is trusted in-process dynamic-library code. Review the project and release before using it.
 
-This profile pins `v0.6.1`, tested with CLIProxyAPI `v7.3.7` at upstream commit `b773607`. Install and verify its Linux amd64 binary:
+This profile pins Control Account `v0.6.1`. Its loading and registration were verified with CLIProxyAPI `v8.0.80` (upstream commit `f5c5681`); dashboard behavior was not exercised in that check. Install and verify its Linux amd64 binary:
 
 From a pi-kit checkout whose repository root is a sibling of the `CLIProxyAPI` checkout, run `profiles/cliproxyapi/install-control-account.ps1`. The script must remain in that pi-kit checkout so its fixed `../../../CLIProxyAPI/plugins` path resolves to the CLIProxyAPI plugin directory.
 
@@ -92,10 +92,37 @@ Provider credentials persist under `auths/` and must never be committed or copie
 
 Install `pi-kit`, configure `CLIPROXYAPI_API_KEY` using the client API key from `config.yaml`, then select a `cliproxyapi` model through Pi's `/model`. See the root [README](../../README.md#configure-cliproxyapi) for the shared environment-variable instructions.
 
-For OpenCode 1.18.18, load `@benjamolina/pi-kit@0.3.1` through OpenCode's `plugin` configuration. The root [OpenCode instructions](../../README.md#use-in-opencode-11818) include the portable npm installation, reload behavior, and graceful behavior when this local service is unavailable.
+For OpenCode 1.18.18, load a released version of `@benjamolina/pi-kit` through OpenCode's `plugin` configuration. Follow the root [OpenCode instructions](../../README.md#use-in-opencode-11818) for package version selection, portable npm installation, reload behavior, and graceful behavior when this local service is unavailable.
 
-For Codex CLI, the IDE extension, or the desktop app, use the repository command `bun ./bin/pi-kit-codex.ts doctor` followed by `bun ./bin/pi-kit-codex.ts install`. This support is unreleased: the published `@benjamolina/pi-kit@0.3.1` package does not include it. The installation updates their shared user-level `config.toml`; see the root [Codex quick path](../../README.md#codex--cliproxyapi-quick-path) for prerequisites, safety semantics, and troubleshooting.
+For Codex CLI, the IDE extension, or the desktop app, use the repository command `bun ./bin/pi-kit-codex.ts doctor` followed by `bun ./bin/pi-kit-codex.ts install`, or the released-package commands in the root [Codex quick path](../../README.md#codex--cliproxyapi-quick-path). The installation updates their shared user-level `config.toml`; that guide covers prerequisites, safety semantics, and troubleshooting.
+
+## Verified server and Neon smoke tests
+
+The local Docker deployment was upgraded from CLIProxyAPI `v8.0.66` to `v8.0.80` (commit `f5c5681`). The following checks passed after the update:
+
+| Check | Observed result |
+| --- | --- |
+| Server startup | Running with no container restarts; five auth entries retained |
+| Network bindings | All six published ports bound only to `127.0.0.1` |
+| Plugin loading and registration | `codex-catalog-display-name` `1.1.0`, `codex-antigravity-responses-repair` `1.0.1`, and Control Account `0.6.1` |
+| Antigravity model catalog | `gemini-4-neon-xhigh` available through `/v1/models` |
+| Non-streaming completion | HTTP 200 and the exact requested response |
+| Streaming completion | HTTP 200, the exact requested content, and a final `[DONE]` event |
+| Tool-call round trip | Correct function name and arguments, followed by an exact response using the supplied tool result |
+
+The completion checks used `/v1/chat/completions` directly with `gemini-4-neon-xhigh`; the non-streaming response reported the upstream model as `gemini-4-neon`. These are bounded smoke tests, not a guarantee of long-session or load stability. They do not verify plugin-specific behavior, Codex `/v1/responses` repair, dashboard behavior, or end-to-end Pi, Codex, and OpenCode integrations. The repository test suite was not run as part of that deployment update.
 
 ## Update safely
 
-Keep the CLIProxyAPI fork synchronized with upstream first. Before changing the plugin version, review its release notes and checksum, update this profile in a separate commit, and validate `docker compose config --quiet` before restarting the service.
+Keep the CLIProxyAPI fork synchronized with upstream first. Before changing a plugin version, review its release notes and checksum and update this profile separately. Native plugin loading alone does not establish functional compatibility with a newer server.
+
+For a server image update, run from the CLIProxyAPI checkout:
+
+1. Validate Compose with `docker compose config --quiet`. Retain the loopback-only override.
+2. Record and retain the running image ID for rollback before pulling a new image.
+3. Run `docker compose pull cli-proxy-api`.
+4. Stop only `cli-proxy-api` and back up `config.yaml`, `auths/`, the entire `plugins/` directory, and both Compose files. Stop the service before archiving plugin SQLite state so database and WAL files remain consistent. Keep this sensitive backup outside version control.
+5. Run `docker compose up -d --no-deps --pull never cli-proxy-api` to recreate only that service.
+6. Check the server version, auth count, plugin registrations, loopback bindings, and real model requests. Exercise plugin-specific paths separately before claiming full compatibility.
+
+Keep the old image and backup until verification is complete. A rollback to the old image does not undo changes to persistent data; restoring that data requires a separate, deliberate operation with the service stopped.
