@@ -230,6 +230,13 @@ $env:CLIPROXYAPI_API_KEY
 
 After CLIProxyAPI account or model changes, use `/reload`, restart Pi, or run `pi update --models` to refresh the catalog.
 
+### Antigravity prompt repair in Pi
+
+`extensions/antigravity-prompt-repair.ts` registers a `before_provider_request` hook in Pi that rewrites Pi's competing-client harness boilerplate in outgoing `system` and `developer` messages before sending requests to Antigravity-backed models on `cliproxyapi` or `9router`. This prevents prompt-dependent upstream `429 RESOURCE_EXHAUSTED` rejections in Pi sessions and subagents while keeping local Pi documentation paths, topic file names, tool definitions, skills, and persisted session transcripts intact.
+
+- **Strict Antigravity scoping:** runs only when the active Pi provider is `9router` (`ag/*` or `antigravity/*`) or `cliproxyapi` (`agy*/*`, `ag/*`, `antigravity*/*`, unscoped `gemini-*` / `gpt-oss-*`, or ambiguous unscoped model IDs whose `/v1/models` `owned_by` equals `antigravity`). Non-Antigravity models (`cx/*`, `codex*`, `gpt-*`, direct `claude-*`, etc.) and non-instruction message roles (`user`, `assistant`, `tool`) are never modified.
+- **Reversible opt-out:** enabled by default. Set `PI_KIT_ANTIGRAVITY_PROMPT_REPAIR=0` (or `false`, `no`, `off`) in the Pi environment to disable the hook immediately without uninstalling `pi-kit`.
+
 ### Pi + 9Router (optional)
 
 `extensions/9router-dynamic-provider.ts` registers a separate `9router` provider in Pi when `NINEROUTER_API_KEY` is set in the Pi environment:

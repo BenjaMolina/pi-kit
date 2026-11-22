@@ -44,6 +44,7 @@ const REQUIRED_FILES = [
   "README.md",
   "package.json",
   "extensions/cliproxyapi-dynamic-provider.ts",
+  "extensions/antigravity-prompt-repair.ts",
   "opencode/cliproxyapi.ts",
   "bin/pi-kit-codex.ts",
   "bin/pi-kit-copilot.ts",
@@ -55,6 +56,7 @@ const REQUIRED_FILES = [
   "src/cliproxyapi/9router.ts",
   "src/cliproxyapi/models.ts",
   "src/cliproxyapi/opencode.ts",
+  "src/cliproxyapi/pi-antigravity-prompt-repair.ts",
   "src/copilot/cli.ts",
   "src/copilot/launcher.ts",
   "src/copilot/state.ts",
@@ -224,12 +226,16 @@ async function verifyPiConsumer(consumer: string, registry: RegistryMock): Promi
   const packageDir = join(project, ".pi", "npm", "node_modules", "@benjamolina", "pi-kit");
   assert(existsSync(join(packageDir, "package.json")), "Pi did not install the named packed package into its project package manager");
   assert(existsSync(join(packageDir, "extensions", "9router-dynamic-provider.ts")), "Pi did not install extensions/9router-dynamic-provider.ts");
+  assert(existsSync(join(packageDir, "extensions", "antigravity-prompt-repair.ts")), "Pi did not install extensions/antigravity-prompt-repair.ts");
   assert(existsSync(join(packageDir, "src", "cliproxyapi", "pi-9router.ts")), "Pi did not install src/cliproxyapi/pi-9router.ts");
+  assert(existsSync(join(packageDir, "src", "cliproxyapi", "pi-antigravity-prompt-repair.ts")), "Pi did not install src/cliproxyapi/pi-antigravity-prompt-repair.ts");
   const listed = await runCommand(["pi", "list", "--approve"], project, environment);
   assert(listed.includes(PACKAGE_NAME), `Pi ${PI_VERSION} did not list the installed package:\n${listed}`);
 
   const nineRouterDynamic = await import(join(packageDir, "extensions", "9router-dynamic-provider.ts"));
   assert(typeof nineRouterDynamic.default === "function", "Packaged 9Router dynamic provider does not export a default factory function");
+  const antigravityRepair = await import(join(packageDir, "extensions", "antigravity-prompt-repair.ts"));
+  assert(typeof antigravityRepair.default === "function", "Packaged Antigravity prompt repair extension does not export a default factory function");
 
   const listedModels = await runCommand(["pi", "--list-models", "--approve"], project, environment);
   assert(listedModels.split(/\r?\n/).some((line) => /^9router\s{2,}mock-nine-router-model(?:\s{2,}|$)/.test(line)),
